@@ -1,0 +1,15 @@
+matplotlib
+monai
+natsort
+scikit-image
+SimpleITK
+tqdm
+wandb
+similaritymeasures
+pandas
+openpyxl
+torcheval==0.0.6
+
+pytorch_lightning==1.7.3
+torchmetrics==0.9.0
+torch==2.0.1
