@@ -1,8 +1,8 @@
 #!/bin/sh
 
 #SBATCH --job-name=DynPETSeg  # Job name
-#SBATCH --output=output/DynPETSeg-%A.out  # Standard output of the script (Can be absolute or relative path). %A adds the job id to the file name so you can launch the same script multiple times and get different logging files
-#SBATCH --error=output/DynPETSeg-%A.err  # Standard error of the script
+#SBATCH --output=/home/guests/jorge_padilla/output/logs/DynPETSeg-%A.out  # Standard output of the script (Can be absolute or relative path). %A adds the job id to the file name so you can launch the same script multiple times and get different logging files
+#SBATCH --error=/home/guests/jorge_padilla/output/logs/DynPETSeg-%A.err  # Standard error of the script
 #SBATCH --time=0-24:00:00  # Limit on the total run time (format: days-hours:minutes:seconds)
 #SBATCH --gres=gpu:1  # Number of GPUs if needed
 #SBATCH --cpus-per-task=1  # Number of CPUs (Don't use more than 12 per GPU)

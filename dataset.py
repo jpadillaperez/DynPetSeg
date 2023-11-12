@@ -8,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from utils.utils_kinetic import PET_2TC_KM
 from utils.utils_torch import torch_interp_1d
-from utils.set_root_paths import root_data_path
+from utils.set_root_paths import root_data_path, root_dataset_path
 
 class DynPETDataset(CacheDataset):
 
@@ -72,8 +72,8 @@ class DynPETDataset(CacheDataset):
         return
 
     def load_txt_data(self, patient):
-        tac_txt_path = os.path.join(root_data_path, "DynamicPET/TAC", "DynamicFDG_"+patient+"_TAC.txt")
-        idif_txt_path = os.path.join(root_data_path, "DynamicPET/IDIF", "DynamicFDG_"+patient+"_IDIF.txt")
+        tac_txt_path = os.path.join(root_data_path, "TAC", "DynamicFDG_"+patient+"_TAC.txt")
+        idif_txt_path = os.path.join(root_data_path, "IDIF", "DynamicFDG_"+patient+"_IDIF.txt")
 
         # Read acquisition time
         data = pd.read_csv(tac_txt_path, sep="\t")
@@ -99,7 +99,7 @@ class DynPETDataset(CacheDataset):
     def read_dynpet(self): 
         data_list = list()
         for patient in self.patient_list:
-            patient_folder = glob.glob(os.path.join(root_data_path, "DynamicPET", "*DynamicFDG_"+patient))[0]
+            patient_folder = glob.glob(os.path.join(root_data_path, "*DynamicFDG_"+patient))[0]
 
             # When using self.config["slices_per_patient_*"] --> probably the selection of self.slice can be shortened a little bit
             self.slices_per_patients = int(self.current_dataset_size / len(self.patient_list))
@@ -197,14 +197,10 @@ class DynPETDataset(CacheDataset):
     def load_data(self):
         # Define the location where the dataset is saved
         folder_name = self.dataset_type+"_N"+str(self.current_dataset_size)+"_P"+str(self.patch_size)
-        if root_data_path == "/mnt/polyaxon/data1":
-            self.save_data_folder = os.path.join("/home/lamp/Documents/Francesca/dynamicpet/local_dataset", folder_name)
-        elif root_data_path == "/Volumes/polyaxon/data1":
-            self.save_data_folder = os.path.join(root_data_path, "DynamicPET", "dataset_release", folder_name)
-        elif root_data_path == "/data":
-            self.save_data_folder = os.path.join(root_data_path, "DynamicPET", "dataset", folder_name)
-        elif root_data_path == "/home/polyaxon-data/data1":
-            self.save_data_folder = os.path.join("/home/guests/francesca_de_benetti/francesca/data/MICCAI_release/dataset", folder_name)
+
+        #self.save_data_folder = os.path.join(root_data_path, "DynamicPET", "dataset_release", folder_name)
+        #self.save_data_folder = os.path.join(root_data_path, "DynamicPET", "dataset", folder_name)
+        self.save_data_folder = os.path.join(root_dataset_path, folder_name)
 
         # Create the folder if it doesn't exist
         if not os.path.exists(self.save_data_folder):       
@@ -212,7 +208,7 @@ class DynPETDataset(CacheDataset):
 
         # If the dataset exists, load it and return it
         file_name = "data"+str(self.patient_list)+".pt"
-        if os.path.exists(self.save_data_folder+"/"+file_name):
+        if os.path.exists(self.save_data_folder+"/" + file_name):
             data = torch.load(self.save_data_folder+"/"+file_name)
             return data
         else:

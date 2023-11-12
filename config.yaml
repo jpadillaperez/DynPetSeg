@@ -1,17 +1,17 @@
 epochs: 
-  value: 100
+  value: 500
 
 # Architecture
-use_spatio_temporal_unet:
+use_spatio_temporal_unet: #Convolution: true -> Spatio-temporal, false -> 3D
   value: True
 
 model_depth:
   value: 4
 
-max_pool_time:
+max_pool_time: #Pooling: true -> 3D, false -> Space
   value: True
 
-final_activation:
+final_activation: #Final activation: multi_clamp, clamp, absolute
   value: "multi_clamp" 
 
 activation:
@@ -26,10 +26,10 @@ patient_list:
         }
 
 slices_per_patient_train:
-  value: 5
+  value: 75
 
 slices_per_patient_val:
-  value: 5
+  value: 75
 
 # Training options
 batch_norm: 

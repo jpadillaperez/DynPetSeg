@@ -8,6 +8,7 @@ import pytorch_lightning as pl
 from scipy.stats import pearsonr
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+import multiprocessing
 
 from dataset import DynPETDataset
 from network.unet_blocks import UNet
@@ -16,7 +17,7 @@ from utils.utils_kinetic import PET_2TC_KM_batch
 from utils.utils_main import make_save_folder_struct, reconstruct_prediction, apply_final_activation
 from utils.utils_logging import log_slice, log_curves, mask_data
 from utils.utils_torch import torch_interp_Nd
-from utils.set_root_paths import root_path, root_checkpoints_path
+from utils.set_root_paths import root_path, root_checkpoints_path, checkpoint_path
 import utils.similaritymeasures_torch as similaritymeasures_torch
 
 torch.cuda.empty_cache()
@@ -30,7 +31,7 @@ else:
   current_gpu = [0]
 
 class SpaceTempUNet(pl.LightningModule):
-  
+   
   def __init__(self, config):
 
     # Enforce determinism
@@ -96,16 +97,19 @@ class SpaceTempUNet(pl.LightningModule):
     return loss
   
   def train_dataloader(self):
-      train_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=self.config["batch_size"], shuffle=True, num_workers=0)
+      num_cpus = multiprocessing.cpu_count()
+      train_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=self.config["batch_size"], shuffle=True, num_workers=num_cpus)
       return train_loader
 
   def val_dataloader(self):
-      val_loader = torch.utils.data.DataLoader(self.val_dataset, batch_size=self.config["batch_size"], shuffle=False, num_workers=0)
+      num_cpus = multiprocessing.cpu_count()
+      val_loader = torch.utils.data.DataLoader(self.val_dataset, batch_size=self.config["batch_size"], shuffle=False, num_workers=num_cpus)
       return val_loader
   
   def test_dataloader(self):
+      num_cpus = multiprocessing.cpu_count()
       # If batch_size!=1 test_set and test_epoch_end may not work as expected
-      test_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=1, shuffle=False, num_workers=0)
+      test_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=1, shuffle=False, num_workers=num_cpus)
       return test_loader
     
   def accumulate_func(self, batch, logits, return_value=None):
@@ -142,6 +146,7 @@ class SpaceTempUNet(pl.LightningModule):
       for i in range(b):
         current_TAC_batch = TAC_batch[i, :, :]
         current_kinetic_params = kinetic_params[i, :, :, :]
+        
         current_TAC_pred_batch_long, _ = self.make_curve(current_kinetic_params, p[i])
         
         # Fix the mismatch in time: input has 62 time points, model has 600
@@ -237,6 +242,7 @@ class SpaceTempUNet(pl.LightningModule):
   def accumulate_loss_and_metric(self, batch, logits):
     return self.accumulate_func(batch, logits, return_value=None)
 
+  
   def make_curve(self, kinetic_params, patient):
 
     # Prepare the IDIF --> can't be moved outside the for loop because the patient can change inside the batch
@@ -262,6 +268,8 @@ class SpaceTempUNet(pl.LightningModule):
     current_pred_curve = PET_2TC_KM_batch(idif_batch.to(machine), self.t_batch.to(machine), k1, k2, k3, Vb)
     
     return current_pred_curve, None
+
+
 
   def training_step(self, batch, batch_idx):
     # batch = [patient, slice, TAC]
@@ -397,6 +405,12 @@ class SpaceTempUNet(pl.LightningModule):
     optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["learning_rate"])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 50, 75, 100], gamma=0.5, verbose=True)
     return [optimizer], [scheduler]
+
+
+  def lr_scheduler_step(self, scheduler, epoch, step):
+    # decide when to update learning rate
+    if epoch % 10 == 0:
+        scheduler.step()
   
 def train_unet(resume_path=None, enable_testing=False):
   # Set up Weights&Biases
@@ -469,9 +483,10 @@ def test_unet(checkpoint_path=None):
   wandb.finish()
 
 if __name__ == '__main__':
-  
   ### TRAIN ###
-  train_unet(resume_path=None, enable_testing=False)
+  train_unet(resume_path=checkpoint_path, enable_testing=False)
+
+
 
   ### TEST ###
   # test_unet()
