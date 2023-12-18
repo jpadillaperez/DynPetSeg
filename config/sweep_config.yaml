@@ -1,0 +1,22 @@
+program: ../main.py
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+
+parameters:
+  #use_spatio_temporal_unet:
+  #  values: [True, False]
+
+  #final_activation:     # Modality
+  #  values: ["clamp", "multi_clamp"]
+
+  learning_rate:
+    values: [0.0001, 0.00001]
+  
+  lr_scheduler:
+    values: ["CosineAnnealingLR", "MultiStepLR"]
+  
+  warmup_epochs:
+    values: [0, 5]
+  

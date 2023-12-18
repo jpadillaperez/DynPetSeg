@@ -25,10 +25,18 @@ class DynPETDataset(CacheDataset):
         self.patch_size = self.config["patch_size"]
 
         # Create config for each dataset type from global config
-        self.train_config = {"patient_list": self.config["patient_list"]["train"], "slices_per_patient": int(self.config["slices_per_patient_train"])}
-        self.val_config = {"patient_list": self.config["patient_list"]["validation"], "slices_per_patient": int(self.config["slices_per_patient_val"])}
-        if self.config["slices_per_patient_test"] is "None":
-            self.test_config = {"patient_list": self.config["patient_list"]["test"], "slices_per_patient": 500}     # Take all the slices from the test patients
+        if (self.config["slices_per_patient_train"] == "None") or (self.config["slices_per_patient_train"] == "all"):
+            self.train_config = {"patient_list": self.config["patient_list"]["train"], "slices_per_patient": 500}
+        else:
+            self.train_config = {"patient_list": self.config["patient_list"]["train"], "slices_per_patient": self.config["slices_per_patient_train"]}
+
+        if (self.config["slices_per_patient_val"] == "None") or (self.config["slices_per_patient_val"] == "all"):
+            self.val_config = {"patient_list": self.config["patient_list"]["validation"], "slices_per_patient": 500}
+        else:
+            self.val_config = {"patient_list": self.config["patient_list"]["validation"], "slices_per_patient": self.config["slices_per_patient_val"]}    
+
+        if (self.config["slices_per_patient_test"] == "None") or (self.config["slices_per_patient_test"] == "all"):
+            self.test_config = {"patient_list": self.config["patient_list"]["test"], "slices_per_patient": 500}
         else: 
             self.test_config = {"patient_list": self.config["patient_list"]["test"], "slices_per_patient": self.config["slices_per_patient_test"]}
 
@@ -52,9 +60,12 @@ class DynPETDataset(CacheDataset):
         return int(self.length)
     
     def build_dataset(self, current_config):
+        print("Slices per patient:", current_config["slices_per_patient"])
+        print("Patient list:", current_config["patient_list"])
+
         self.current_dataset_size = current_config["slices_per_patient"] * len(current_config["patient_list"])     
         print("Creating dataset", self.dataset_type, ":", current_config)
-            
+
         self.patient_list = current_config["patient_list"]
         for p in self.patient_list:
             self.load_txt_data(p)
@@ -104,6 +115,8 @@ class DynPETDataset(CacheDataset):
             # When using self.config["slices_per_patient_*"] --> probably the selection of self.slice can be shortened a little bit
             self.slices_per_patients = int(self.current_dataset_size / len(self.patient_list))
 
+            # JPP: When using all of the slices per patient, it still means same number of slices in all the patients? --> No
+
             if self.current_dataset_size == 1: 
                 # When using only one slice per patient (for example during debugging), the location of the slice is hard-coded (it should select a slice with kidneys)
                 self.slices = [212]
@@ -112,8 +125,10 @@ class DynPETDataset(CacheDataset):
                 # When config["slices_per_patient_*"]>1 (and therefore self.current_dataset_size > 1), the slices are selected within a ROI defined by a bouding box (bb). We used a bb
                 # including the lungs and the bladder. In this way we didn't considered the head (because of the movement over the acquisition) and the legs (which are not very informative).
                 # The use of the bb is not mandatory.  
-                bb_path = patient_folder+"/NIFTY/Resampled/bb.nii.gz"
+                bb_path = patient_folder + "/NIFTY/Resampled/bb.nii.gz"
                 bb_ = sitk.GetArrayFromImage(sitk.ReadImage(bb_path))
+
+                # JPP: When using all of the slices per patient, we still need a bounding box?
 
                 # First, the indexes of the slices are picked homogeneously withing the indexes of the bb
                 indexes = np.nonzero(bb_)
@@ -157,10 +172,13 @@ class DynPETDataset(CacheDataset):
             size = self.patch_size
             pet_list = glob.glob(patient_folder+"/NIFTY/Resampled/PET_*.nii.gz")
             data = list()
+
+            # JPP: Normalize the size of all the PETs and use all the slices in them
+
             current_data = torch.zeros((len(self.slices), len(pet_list), size, size))          
             for i in range(len(pet_list)):
                 p = pet_list[i]
-                current_pet = torch.from_numpy(sitk.GetArrayFromImage(sitk.ReadImage(p))) 
+                current_pet = torch.from_numpy(np.int32(sitk.GetArrayFromImage(sitk.ReadImage(p))))
 
                 # Define borders of center crop
                 slice_size = current_pet[0, :, :].shape

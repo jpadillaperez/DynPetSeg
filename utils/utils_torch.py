@@ -2,6 +2,7 @@
 
 import torch
 from torch import Tensor
+from torch.optim.lr_scheduler import _LRScheduler
 
 def torch_interp_1d(x: Tensor, xp: Tensor, fp: Tensor) -> Tensor:
     """
@@ -70,3 +71,14 @@ def torch_conv_batch(in1, in2):
   o = o[:, :, in1.shape[2]+1:]
   o = torch.flip(o, (0, 2))
   return o
+
+class WarmupScheduler(_LRScheduler):
+    def __init__(self, optimizer, total_epochs, warmup_epochs, last_epoch=-1):
+        self.warmup_epochs = warmup_epochs
+        self.total_epochs = total_epochs
+        super(WarmupScheduler, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        if self.last_epoch < self.warmup_epochs:
+            return [base_lr * float(self.last_epoch) / self.warmup_epochs for base_lr in self.base_lrs]
+        return [base_lr for base_lr in self.base_lrs]

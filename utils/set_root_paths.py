@@ -16,6 +16,8 @@ print("root_data_path =", root_data_path)
 root_dataset_path = "/home/guests/jorge_padilla/data/DynamicPET_Segmentation"
 print("root_dataset_path =", root_dataset_path)
 
-checkpoint_path = os.path.join(root_checkpoints_path, "checkpoints", "zesty-eon-22", "last.ckpt")
+checkpoint_path = None
+#checkpoint_path = os.path.join(root_checkpoints_path, "checkpoints", "zesty-eon-22", "last.ckpt")
+#checkpoint_path = os.path.join(root_checkpoints_path, "checkpoints", "misunderstood-meadow-23", "last.ckpt")
 if checkpoint_path is not None:
     print("Using previous checkpoint =", checkpoint_path)

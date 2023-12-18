@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import yaml
 import pytorch_lightning as pl
 from scipy.stats import pearsonr
 from pytorch_lightning.loggers import WandbLogger
@@ -16,9 +17,13 @@ from network.unet_blocks_ST import UNet_ST
 from utils.utils_kinetic import PET_2TC_KM_batch
 from utils.utils_main import make_save_folder_struct, reconstruct_prediction, apply_final_activation
 from utils.utils_logging import log_slice, log_curves, mask_data
-from utils.utils_torch import torch_interp_Nd
+from utils.utils_torch import torch_interp_Nd, WarmupScheduler
 from utils.set_root_paths import root_path, root_checkpoints_path, checkpoint_path
 import utils.similaritymeasures_torch as similaritymeasures_torch
+
+#print current gpu and gpu memory
+print("Current GPU: "+str(torch.cuda.current_device()))
+print("Current GPU memory: "+str(torch.cuda.memory_allocated()))
 
 torch.cuda.empty_cache()
 
@@ -45,12 +50,13 @@ class SpaceTempUNet(pl.LightningModule):
 
     # Read configuration file and add new info if needed
     self.config = config
+    print(self.config)
     self.config["output_size"] = 4    # This is the number of output channels
     self.config["mask_loss"] = True
     self.config["multi_clamp_params"] = {"k1": (0.01, 2), "k2": (0.01, 3), "k3": (0.01, 1), "Vb": (0, 1)}
     # The paper was developed with config["patch_size"] = 112. However in this was some regions of the body are outsie the FOV (for example the arms of part of the belly or the back).
     # While config["patch_size"] = 112 doesn't reduce the performance of the training, using a larger patch_size will allow to infere complete 3D volumes without missing parts. 
-    self.config["patch_size"] = 112 
+    #self.config["patch_size"] = 112 
     self.config["use_pearson_metric"] = False     # Setting it to True may slow down the training 
     print(self.config)
 
@@ -98,16 +104,19 @@ class SpaceTempUNet(pl.LightningModule):
   
   def train_dataloader(self):
       num_cpus = multiprocessing.cpu_count()
+      num_cpus = 0
       train_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=self.config["batch_size"], shuffle=True, num_workers=num_cpus)
       return train_loader
 
   def val_dataloader(self):
       num_cpus = multiprocessing.cpu_count()
+      num_cpus = 0
       val_loader = torch.utils.data.DataLoader(self.val_dataset, batch_size=self.config["batch_size"], shuffle=False, num_workers=num_cpus)
       return val_loader
   
   def test_dataloader(self):
       num_cpus = multiprocessing.cpu_count()
+      num_cpus = 0
       # If batch_size!=1 test_set and test_epoch_end may not work as expected
       test_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=1, shuffle=False, num_workers=num_cpus)
       return test_loader
@@ -374,7 +383,10 @@ class SpaceTempUNet(pl.LightningModule):
   
   def test_epoch_end(self, outputs):
     run_name = os.path.split(os.path.split(self.pd_path)[0])[1]
+
     summary = dict()
+    patient_totals = dict()
+    patient_counts = dict()
 
     for o in outputs:
       metric_dict = o["metric_dict"]
@@ -382,7 +394,10 @@ class SpaceTempUNet(pl.LightningModule):
       slices_in_batch = o["slices_in_batch"]
       for i in range(len(patients_in_batch)):
         p = patients_in_batch[i]
-        if not p in summary.keys(): summary[p] = dict()
+        if not p in summary.keys(): 
+          summary[p] = dict()
+          patient_totals[p] = {"CosineSim": 0, "MSE": 0, "MAE": 0}
+          patient_counts[p] = 0
         for j in range(len(slices_in_batch)):
           s = int(slices_in_batch[j].item())
           if patients_in_batch[j] == p:
@@ -391,20 +406,64 @@ class SpaceTempUNet(pl.LightningModule):
             summary[p][s]["MAE"] = metric_dict["mae"]
             summary[p][s]["CosineSim"] = metric_dict["cosine_sim"]
 
+            patient_totals[p]["CosineSim"] += metric_dict["cosine_sim"]
+            patient_totals[p]["MSE"] += metric_dict["mse"]
+            patient_totals[p]["MAE"] += metric_dict["mae"]
+            patient_counts[p] += 1
+
+    patient_std_devs = {}
     for p in summary.keys():
       current_df = pd.DataFrame.from_dict(summary[p])
       # This file contains the metrics per slice. It allows to identify slices with bad peformance. 
       # It is also used during evaluation phase to compute the metrics on the whole dataset
-      current_df.to_excel(os.path.join(self.pd_path, p+"_metric_per_slice_"+run_name+".xlsx"))
+      current_df.to_excel(os.path.join(self.pd_path, p + "_metric_per_slice_" + run_name + ".xlsx"))
+      
+      patient_metrics = pd.DataFrame.from_dict(summary[p]).transpose()
+      patient_means = patient_metrics.mean()
+      squared_diffs = (patient_metrics - patient_means) ** 2
+      patient_std_devs[p] = np.sqrt(squared_diffs.mean()).to_dict()
 
     # Reconstruct the 3D kinetic parameters volumes
     reconstruct_prediction(self.pt_path, self.nifty_path)
+
+    # Compute the average metrics per patient
+    patient_averages = {p: {metric: total / patient_counts[p] for metric, total in totals.items()} for p, totals in patient_totals.items()}
+
+    # Compute the average metrics over the whole dataset
+    overall_averages = {metric: sum(patient_averages[p][metric] for p in patient_averages) / len(patient_averages) for metric in ["CosineSim", "MSE", "MAE"]}
+
+    # Compute the standard deviation for the overall metrics
+    overall_sums_of_squares = {"CosineSim": 0, "MSE": 0, "MAE": 0}
+    for p in patient_averages.keys():
+        for metric in ["CosineSim", "MSE", "MAE"]:
+            overall_sums_of_squares[metric] += (patient_averages[p][metric] - overall_averages[metric]) ** 2
+
+    overall_std_devs = {metric: np.sqrt(total / len(patient_averages)) for metric, total in overall_sums_of_squares.items()}
+
+    print(f"Patient averages: {patient_averages}")
+    print(f"Patient standard deviations: {patient_std_devs}")
+    print(f"Overall standard deviations: {overall_std_devs}")
+    print(f"Overall averages: {overall_averages}")
+
     return 
 
   def configure_optimizers(self):
-    optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["learning_rate"])
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 50, 75, 100], gamma=0.5, verbose=True)
-    return [optimizer], [scheduler]
+    base_lr = self.config["learning_rate"]
+    initial_lr = base_lr * 0.1
+
+    # Define the optimizer
+    optimizer = torch.optim.AdamW(self.parameters(), lr=initial_lr)
+
+    # Define the learning rate scheduler
+    if self.config["lr_scheduler"] == "CosineAnnealingLR":
+      scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10, eta_min=0, last_epoch=-1, verbose=True)
+    elif self.config["lr_scheduler"] == "MultiStepLR":
+      scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 50, 75, 100], gamma=0.5, verbose=True)
+
+    # Define the warmup scheduler
+    warmup_scheduler = WarmupScheduler(optimizer, total_epochs=self.config["epochs"], warmup_epochs=self.config["warmup_epochs"])
+
+    return [optimizer], [warmup_scheduler, scheduler]
 
 
   def lr_scheduler_step(self, scheduler, epoch, step):
@@ -412,12 +471,15 @@ class SpaceTempUNet(pl.LightningModule):
     if epoch % 10 == 0:
         scheduler.step()
   
+
+#----------------------------------------------
+
 def train_unet(resume_path=None, enable_testing=False):
   # Set up Weights&Biases
-  wandb.init(project="DynamicPet_segmentation", config=os.path.join(root_path, "config.yaml"))
+  wandb.init(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config.yaml"))
 
   # Set up Weights&Biases Logger
-  wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config.yaml"))
+  wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config.yaml"))
 
   unet = SpaceTempUNet(wandb.config)
 
@@ -460,7 +522,7 @@ def train_unet(resume_path=None, enable_testing=False):
 
 def test_unet(checkpoint_path=None):
   # Set up Weights&Biases Logger
-  wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config.yaml"))
+  wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config.yaml"))
 
   if checkpoint_path is None:
     checkpoint_path = os.path.join(root_checkpoints_path, "checkpoints", wandb.config["saved_checkpoint"])
@@ -483,11 +545,30 @@ def test_unet(checkpoint_path=None):
   wandb.finish()
 
 if __name__ == '__main__':
-  ### TRAIN ###
-  train_unet(resume_path=checkpoint_path, enable_testing=False)
 
+  with open("config/config.yaml", "r") as stream:
+    config = yaml.safe_load(stream)
 
+  print("Performing ", config["modality"]["value"])
 
-  ### TEST ###
-  # test_unet()
-  
+  if config["modality"]["value"] == "test": 
+    test_unet()
+
+  elif config["modality"]["value"] == "train":
+    if config["continue_checkpoint"]["value"] == "":
+      train_unet()
+    else:
+      train_unet(resume_path=config["continue_checkpoint"]["value"], enable_testing=False)
+
+  elif config["modality"]["value"] == "grid_search":
+    # Initialize sweep by passing in config
+    with open("config/sweep_config.yaml", "r") as stream:
+      sweep_config = yaml.safe_load(stream)
+      sweep_id = wandb.sweep(sweep=sweep_config, project="DynamicPet_segmentation")
+    
+    # Start sweep job.
+    wandb.agent(sweep_id, function=train_unet)
+
+  else:
+    print("ERROR: modality not recognized!")
+
