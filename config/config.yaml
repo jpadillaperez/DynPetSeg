@@ -17,8 +17,11 @@ final_activation: #Final activation:: multi_clamp, clamp, absolute
 activation:
   value:  "ELU"
 
+bounding_box:
+  value: False
+
 patch_size:
-  value: 184
+  value: 256
 
   # Trials
   # 128: Works
@@ -64,16 +67,15 @@ warmup_epochs:
 
 batch_size: 
   desc: Training and validation batch size
-  value: 5
+  value: 1
 
-# Logging
 log_freq:
   value: 5
 
 val_freq:
   value: 5
   
-# Test
+# Test options
 saved_checkpoint:
   # copper-sweep-1 ('learning_rate': 0.0001, 'lr_scheduler': 'CosineAnnealingLR', 'warmup_epochs': 0, 'patch_size': 112)
   value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/copper-sweep-1/epoch=129-step=65780.ckpt"

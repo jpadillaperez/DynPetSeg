@@ -8,7 +8,8 @@ root_checkpoints_path = "/home/guests/jorge_padilla/output/models/DynamicPET_Seg
 print("root_checkpoints_path =",root_checkpoints_path)
 
 #root_data_path = "/home/polyaxon-data/data1/DynamicPET"
-root_data_path = "/home/polyaxon-data/data1/DynamicPET_segmentation"
+#root_data_path = "/home/polyaxon-data/data1/DynamicPET_segmentation"
+root_data_path = "/home/guests/jorge_padilla/data/DynamicPET_Segmentation"
 print("root_data_path =", root_data_path)
 
 #root_dataset_path = "/home/polyaxon-data/data1/DynamicPET/dataset_release"

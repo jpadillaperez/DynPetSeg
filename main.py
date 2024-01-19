@@ -21,10 +21,6 @@ from utils.utils_torch import torch_interp_Nd, WarmupScheduler
 from utils.set_root_paths import root_path, root_checkpoints_path, checkpoint_path
 import utils.similaritymeasures_torch as similaritymeasures_torch
 
-#print current gpu and gpu memory
-print("Current GPU: "+str(torch.cuda.current_device()))
-print("Current GPU memory: "+str(torch.cuda.memory_allocated()))
-
 torch.cuda.empty_cache()
 
 if not torch.cuda.is_available():   
@@ -34,6 +30,7 @@ if not torch.cuda.is_available():
 else:
   machine = "cuda:0"
   current_gpu = [0]
+  print("Total GPU Memory {} Gb".format(torch.cuda.get_device_properties(0).total_memory/1e9))
 
 class SpaceTempUNet(pl.LightningModule):
    
@@ -52,7 +49,8 @@ class SpaceTempUNet(pl.LightningModule):
     self.config = config
     print(self.config)
     self.config["output_size"] = 4    # This is the number of output channels
-    self.config["mask_loss"] = True
+    #self.config["mask_loss"] = True
+    self.config["mask_loss"] = False #FIXME
     self.config["multi_clamp_params"] = {"k1": (0.01, 2), "k2": (0.01, 3), "k3": (0.01, 1), "Vb": (0, 1)}
     # The paper was developed with config["patch_size"] = 112. However in this was some regions of the body are outsie the FOV (for example the arms of part of the belly or the back).
     # While config["patch_size"] = 112 doesn't reduce the performance of the training, using a larger patch_size will allow to infere complete 3D volumes without missing parts. 
@@ -103,19 +101,19 @@ class SpaceTempUNet(pl.LightningModule):
     return loss
   
   def train_dataloader(self):
-      num_cpus = multiprocessing.cpu_count()
+      #num_cpus = multiprocessing.cpu_count()
       num_cpus = 0
       train_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=self.config["batch_size"], shuffle=True, num_workers=num_cpus)
       return train_loader
 
   def val_dataloader(self):
-      num_cpus = multiprocessing.cpu_count()
+      #num_cpus = multiprocessing.cpu_count()
       num_cpus = 0
       val_loader = torch.utils.data.DataLoader(self.val_dataset, batch_size=self.config["batch_size"], shuffle=False, num_workers=num_cpus)
       return val_loader
   
   def test_dataloader(self):
-      num_cpus = multiprocessing.cpu_count()
+      #num_cpus = multiprocessing.cpu_count()
       num_cpus = 0
       # If batch_size!=1 test_set and test_epoch_end may not work as expected
       test_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=1, shuffle=False, num_workers=num_cpus)
@@ -179,9 +177,8 @@ class SpaceTempUNet(pl.LightningModule):
           if self.config["mask_loss"]:
               square = torch.square(current_TAC_pred_batch.to(machine) - current_TAC_batch.to(machine))
               absolute = torch.abs(current_TAC_pred_batch.to(machine) - current_TAC_batch.to(machine))
-              metric_mse += torch.sum(square).item() / len(mask[mask>0])
-              metric_mae += torch.sum(absolute).item() / len(mask[mask>0])
-
+              #metric_mse += torch.sum(square).item() / len(mask[mask>0])
+              #metric_mae += torch.sum(absolute).item() / len(mask[mask>0])
               cosine_sim_slice = torch.nn.functional.cosine_similarity(current_TAC_pred_batch.to(machine), current_TAC_batch.to(machine), 0)
               cosine_sim += torch.sum(cosine_sim_slice).item() / len(maskk[maskk>0])
 
@@ -274,8 +271,8 @@ class SpaceTempUNet(pl.LightningModule):
     Vb = kinetic_params[:, 3, :].unsqueeze(1)
 
     # Compute the TAC
-    current_pred_curve = PET_2TC_KM_batch(idif_batch.to(machine), self.t_batch.to(machine), k1, k2, k3, Vb)
-    
+    current_pred_curve = PET_2TC_KM_batch(idif_batch.to(machine), self.t_batch.to(machine), k1.to(machine), k2.to(machine), k3.to(machine), Vb.to(machine))
+
     return current_pred_curve, None
 
 
@@ -286,7 +283,14 @@ class SpaceTempUNet(pl.LightningModule):
     x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1))   # padding --> [b, 1, 64, w, h]
 
     logits_params = self.forward(x)        # [b, 4, 1, w, h]
-    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)
+    
+    #Bring to cpu to avoid memory issues
+    #TAC_mes_batch = TAC_mes_batch.cpu()
+    #logits_params = logits_params.cpu()
+    
+    #batch[2] = batch[2].cpu()
+    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)#.cpu())
+    
     self.log('train_loss', loss_dict["loss"].item(), on_step=False, on_epoch=True)
 
     if batch_idx % 20 == 0:
@@ -311,7 +315,9 @@ class SpaceTempUNet(pl.LightningModule):
     x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
 
     logits_params = self.forward(x)        # [b, 4, 1, w, h]
-    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)
+
+    #batch[2] = batch[2].cpu()
+    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)#.cpu())
 
     self.log('val_loss', loss_dict["loss"].item(), on_step=False, on_epoch=True)
     self.log_dict(metric_dict, on_step=False, on_epoch=True)
