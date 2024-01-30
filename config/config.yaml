@@ -1,5 +1,5 @@
 modality: 
-  value: "train" # "test", "train", "grid_search"
+  value: "sweep" # "test", "train", "sweep"
 
 # Architecture
 use_spatio_temporal_unet: #Convolution:: true -> Spatio-temporal, false -> 3D
@@ -20,19 +20,20 @@ activation:
 bounding_box:
   value: False
 
-patch_size:
-  value: 256
+patch_size: #Just working as a dataset specifier
+  value: 128
 
-  # Trials
-  # 128: Works
-  # 112 Original
-  # 224 Out of memory (Run 2253)
+  # P512: Full Volume per slices
+  # P128: Full Volume per slices without empty slices
   
 # Dataset
 patient_list:
   value:  {
-          "train": ["01", "07", "06", "10", "15", "19", "21", "23", "27", "29"],  
-          "validation": ["01", "14", "16", "17", "18"], 
+          #DONE: Use debugging training list for sweep
+          #"train": ["01", "07", "06", "10", "15", "19", "21", "23", "27", "29"],
+          "train": ["01", "07"],
+          #"validation": ["14", "16", "17", "18"], #DONE: remove 01 from validation because there is not batch = 5 anymore
+          "validation": ["14", "16", "17"],
           "test": ["28", "28", "08", "09", "20", "24", "25", "26", "03"]
         }
 
@@ -47,7 +48,7 @@ slices_per_patient_test:
 
 # Training options
 epochs: 
-  value: 500
+  value: 20
 
 continue_checkpoint:
   value: ""
@@ -59,26 +60,55 @@ batch_norm:
 learning_rate:
   value: 0.0001 
 
-lr_scheduler:
-  value: "CosineAnnealingLR"
+batch_size: 
+  value: 1
 
+lr_scheduler:
+  value: "CosineAnnealingLR" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau
+
+# Parameters specific to CosineAnnealingLR
+cosine_T_max:
+  value: 10
+cosine_eta_min:
+  value: 0
+# Parameters specific to ReduceLROnPlateau
+reduce_factor:
+  value: 0.5
+reduce_patience:
+  value: 10
+# Parameters specific to MultiStepLR
+multistep_milestones:
+  value: [30, 60, 90]
+multistep_gamma:
+  value: 0.5
+
+# Warmup Epochs
 warmup_epochs:
   value: 0
 
-batch_size: 
-  desc: Training and validation batch size
-  value: 1
+# Optimizer Parameters
+weight_decay:
+  value: 0.01
+beta1:
+  value: 0.9
+beta2:
+  value: 0.999
 
+# Other training parameters
 log_freq:
   value: 5
-
 val_freq:
   value: 5
   
 # Test options
 saved_checkpoint:
+  value: None
+
   # copper-sweep-1 ('learning_rate': 0.0001, 'lr_scheduler': 'CosineAnnealingLR', 'warmup_epochs': 0, 'patch_size': 112)
-  value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/copper-sweep-1/epoch=129-step=65780.ckpt"
+  #value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/copper-sweep-1/epoch=129-step=65780.ckpt"
 
   # polar-water-25 ('learning_rate': 0.0001, 'lr_scheduler': 'MultiStepLR', 'warmup_epochs': 0, 'patch_size': 112)
   #value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/polar-water-25/epoch=94-step=14250.ckpt"
+
+  # spring-cherry-204 ('learning_rate': 0.0001, 'lr_scheduler': 'CosineAnnealingLR', 'warmup_epochs': 0, 'patch_size': Full Volume per slices, 'dataset': 'P512 - Full Volume per slices'
+  #value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/spring-cherry-204/epoch=19-step=85000.ckpt"

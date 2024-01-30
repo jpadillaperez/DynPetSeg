@@ -270,11 +270,25 @@ class DynPETDataset(CacheDataset):
                                 current_slice = torch.from_numpy(np.pad(current_pet[slice, :, :], padding, 'constant', constant_values=(0, 0)))
                                 current_data[slice, i, :, :] = current_slice/1000           # from Bq/ml to kBq/ml
 
-                    #data = list()
+                    time_stamp_batch = self.time_stamp.repeat(size*size, 1, 1)
+                    time_stamp_batch = time_stamp_batch[:, 0, :].permute((1, 0))
+
                     for j in range(slices):
-                        current_slice = current_data[j, :, :].to(torch.float16).type(torch.cuda.FloatTensor)
-                        torch.save([patient, j, current_slice], self.save_data_folder+"/data"+str(patient)+"_"+str(j)+".pt")
-                        data_list.append(self.save_data_folder+"/data"+str(patient)+"_"+str(j)+".pt")
+                        TAC_batch = torch.reshape(current_data[j, :, :], [current_data.shape[1], size*size])
+                        AUC = torch.trapezoid(TAC_batch, time_stamp_batch, dim=0)
+
+                        maskk = AUC > 10
+                        maskk = maskk * 1
+
+                        #----------------- Save data -----------------
+
+                        if torch.sum(maskk) > 0:
+                            current_slice = current_data[j, :, :].to(torch.float16).type(torch.cuda.FloatTensor)
+                            torch.save([patient, j, current_slice], self.save_data_folder+"/data"+str(patient)+"_"+str(j)+".pt")
+                            data_list.append(self.save_data_folder+"/data"+str(patient)+"_"+str(j)+".pt")
+                        else:
+                            print("WARNING: Empty slice! Patient: " + str(patient) + " Slice: " + str(j))
+
 
             ###TODO: Needed for segmentation
             ### Load label map

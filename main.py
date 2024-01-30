@@ -22,6 +22,8 @@ from utils.set_root_paths import root_path, root_checkpoints_path, checkpoint_pa
 import utils.similaritymeasures_torch as similaritymeasures_torch
 
 torch.cuda.empty_cache()
+torch.use_deterministic_algorithms(mode=True, warn_only=True)
+torch.set_float32_matmul_precision('medium')
 
 if not torch.cuda.is_available():   
   current_gpu = None    
@@ -47,16 +49,14 @@ class SpaceTempUNet(pl.LightningModule):
 
     # Read configuration file and add new info if needed
     self.config = config
-    print(self.config)
     self.config["output_size"] = 4    # This is the number of output channels
-    #self.config["mask_loss"] = True
-    self.config["mask_loss"] = False #FIXME
+    self.config["mask_loss"] = True
     self.config["multi_clamp_params"] = {"k1": (0.01, 2), "k2": (0.01, 3), "k3": (0.01, 1), "Vb": (0, 1)}
     # The paper was developed with config["patch_size"] = 112. However in this was some regions of the body are outsie the FOV (for example the arms of part of the belly or the back).
     # While config["patch_size"] = 112 doesn't reduce the performance of the training, using a larger patch_size will allow to infere complete 3D volumes without missing parts. 
-    #self.config["patch_size"] = 112 
     self.config["use_pearson_metric"] = False     # Setting it to True may slow down the training 
-    print(self.config)
+    
+    print("\nConfiguration: ", self.config)
 
     if self.config["use_spatio_temporal_unet"]:
       self.model = UNet_ST(in_channels=1, out_channels=self.config["output_size"], config=self.config)
@@ -66,6 +66,8 @@ class SpaceTempUNet(pl.LightningModule):
     frame_duration = [10, 10, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 10, 10, 10, 10, 30, 30, 30, 30, 30, 30, 30, 30, 60, 60, 60, 60, 120, 120, 120, 120, 120, 300, 300, 300, 300, 300, 300, 300, 300, 300]
     self.frame_duration = np.array(frame_duration) / 60  # from s to min
     self.frame_duration_batch = torch.from_numpy(np.array(self.frame_duration)).unsqueeze(-1).repeat(1, self.config["patch_size"]*self.config["patch_size"]).to(machine)
+
+    self.validation_step_outputs = []
 
   def setup(self, stage): 
     self.stage = stage
@@ -177,8 +179,8 @@ class SpaceTempUNet(pl.LightningModule):
           if self.config["mask_loss"]:
               square = torch.square(current_TAC_pred_batch.to(machine) - current_TAC_batch.to(machine))
               absolute = torch.abs(current_TAC_pred_batch.to(machine) - current_TAC_batch.to(machine))
-              #metric_mse += torch.sum(square).item() / len(mask[mask>0])
-              #metric_mae += torch.sum(absolute).item() / len(mask[mask>0])
+              metric_mse += torch.sum(square).item() / len(mask[mask>0])
+              metric_mae += torch.sum(absolute).item() / len(mask[mask>0])
               cosine_sim_slice = torch.nn.functional.cosine_similarity(current_TAC_pred_batch.to(machine), current_TAC_batch.to(machine), 0)
               cosine_sim += torch.sum(cosine_sim_slice).item() / len(maskk[maskk>0])
 
@@ -284,12 +286,7 @@ class SpaceTempUNet(pl.LightningModule):
 
     logits_params = self.forward(x)        # [b, 4, 1, w, h]
     
-    #Bring to cpu to avoid memory issues
-    #TAC_mes_batch = TAC_mes_batch.cpu()
-    #logits_params = logits_params.cpu()
-    
-    #batch[2] = batch[2].cpu()
-    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)#.cpu())
+    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)
     
     self.log('train_loss', loss_dict["loss"].item(), on_step=False, on_epoch=True)
 
@@ -316,8 +313,7 @@ class SpaceTempUNet(pl.LightningModule):
 
     logits_params = self.forward(x)        # [b, 4, 1, w, h]
 
-    #batch[2] = batch[2].cpu()
-    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)#.cpu())
+    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)
 
     self.log('val_loss', loss_dict["loss"].item(), on_step=False, on_epoch=True)
     self.log_dict(metric_dict, on_step=False, on_epoch=True)
@@ -339,14 +335,18 @@ class SpaceTempUNet(pl.LightningModule):
       fig_slice = {"Slice (validation batch: "+str(batch_idx)+")": wandb.Image(fig)}
       plt.close()
 
+      self.validation_step_outputs.append({"fig_slice": fig_slice, "fig_curve": fig_curve})
       return {"fig_slice": fig_slice, "fig_curve": fig_curve}
     else:
+      self.validation_step_outputs.append({"val_loss": loss_dict["loss"].item(), "fig_slice": None, "fig_curve": None})
       return {'val_loss': loss_dict["loss"].item(), "fig_slice": None, "fig_curve": None}
   
-  def validation_epoch_end(self, outputs):
-    for o in outputs:
+  def on_validation_epoch_end(self):
+    for o in self.validation_step_outputs:
       if not o["fig_slice"] is None:  wandb.log(o["fig_slice"])
       if not o["fig_curve"] is None:  wandb.log(o["fig_curve"])
+    
+    self.validation_step_outputs.clear()
     return
   
   def test_step(self, batch, batch_idx):
@@ -387,7 +387,7 @@ class SpaceTempUNet(pl.LightningModule):
 
     return {"patients_in_batch": patients_in_batch, "slices_in_batch": slices_in_batch, "metric_dict": metric_dict}
   
-  def test_epoch_end(self, outputs):
+  def on_test_epoch_end(self, outputs):
     run_name = os.path.split(os.path.split(self.pd_path)[0])[1]
 
     summary = dict()
@@ -454,29 +454,21 @@ class SpaceTempUNet(pl.LightningModule):
     return 
 
   def configure_optimizers(self):
-    base_lr = self.config["learning_rate"]
-    initial_lr = base_lr * 0.1
-
     # Define the optimizer
-    optimizer = torch.optim.AdamW(self.parameters(), lr=initial_lr)
+    optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["learning_rate"], weight_decay=self.config['weight_decay'], betas=(self.config['beta1'], self.config['beta2']))
 
     # Define the learning rate scheduler
     if self.config["lr_scheduler"] == "CosineAnnealingLR":
-      scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10, eta_min=0, last_epoch=-1, verbose=True)
+      scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.config['cosine_T_max'], eta_min=self.config['cosine_eta_min'], last_epoch=-1, verbose=True)
     elif self.config["lr_scheduler"] == "MultiStepLR":
-      scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 50, 75, 100], gamma=0.5, verbose=True)
+      scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.config['multistep_milestones'], gamma=self.config['multistep_gamma'], last_epoch=-1, verbose=True)
+    elif self.config["lr_scheduler"] == "ReduceLROnPlateau":
+      scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=self.config['reduce_factor'], patience=self.config['reduce_patience'], verbose=True)
 
     # Define the warmup scheduler
     warmup_scheduler = WarmupScheduler(optimizer, total_epochs=self.config["epochs"], warmup_epochs=self.config["warmup_epochs"])
 
     return [optimizer], [warmup_scheduler, scheduler]
-
-
-  def lr_scheduler_step(self, scheduler, epoch, step):
-    # decide when to update learning rate
-    if epoch % 10 == 0:
-        scheduler.step()
-  
 
 #----------------------------------------------
 
@@ -505,19 +497,19 @@ def train_unet(resume_path=None, enable_testing=False):
                                         verbose=True, 
                                         mode="min",
                                         check_finite=True)
-
-  trainer = pl.Trainer(gpus=current_gpu,
+  
+  trainer = pl.Trainer(devices=current_gpu,
+                        accelerator="gpu",
                         max_epochs=unet.config["epochs"],
                         enable_checkpointing=True,
                         num_sanity_val_steps=1,
                         log_every_n_steps=unet.config["log_freq"],
                         check_val_every_n_epoch=unet.config["val_freq"],
                         callbacks=[checkpoint_callback, early_stop_callback],
-                        logger=wandb_logger,
-                        resume_from_checkpoint=resume_path
+                        logger=wandb_logger
                     )
-  
-  trainer.fit(unet)
+
+  trainer.fit(unet, ckpt_path=resume_path)
 
   if enable_testing:
     trainer.test(ckpt_path="best")
@@ -566,7 +558,7 @@ if __name__ == '__main__':
     else:
       train_unet(resume_path=config["continue_checkpoint"]["value"], enable_testing=False)
 
-  elif config["modality"]["value"] == "grid_search":
+  elif config["modality"]["value"] == "sweep":
     # Initialize sweep by passing in config
     with open("config/sweep_config.yaml", "r") as stream:
       sweep_config = yaml.safe_load(stream)

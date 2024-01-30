@@ -1,5 +1,7 @@
 program: ../main.py
-method: grid
+#method: grid
+method: bayes
+
 metric:
   name: val_loss
   goal: minimize
@@ -11,12 +13,39 @@ parameters:
   #final_activation:     # Modality
   #  values: ["clamp", "multi_clamp"]
 
-  learning_rate:
-    values: [0.0001, 0.00001]
+  #learning_rate:
+  #  values: [0.01, 0.001, 0.0001, 0.00001]
   
-  lr_scheduler:
-    values: ["CosineAnnealingLR", "MultiStepLR"]
-  
+  #lr_scheduler:
+  #  values: ["CosineAnnealingLR", "ReduceLROnPlateau", "MultiStepLR"]
+
+  # Conditional parameters for CosineAnnealingLR
+  cosine_T_max:
+    values: [5, 10, 20]
+
+  cosine_eta_min:
+    values: [0, 1e-5, 1e-4]
+
+  # Conditional parameters for MultiStepLR
+  #multistep_milestones:
+  #  values: [[20, 40], [30, 60, 90], [25, 50, 75, 100]]
+  #multistep_gamma:
+  #  values: [0.5, 0.7, 0.9]
+
+  # Conditional parameters for ReduceLROnPlateau
+  #reduce_factor:
+  #  values: [0.5, 0.3, 0.1]
+  #reduce_patience:
+  #  values: [5, 10, 15]
+
+  ## Optimizer parameters
+  #weight_decay:
+  #  values: [0.01, 0.001, 0.0001]
+  #beta1:
+  #  values: [0.9, 0.92, 0.95]
+  #beta2:
+  #  values: [0.999, 0.995, 0.99]
+
+  # Other training parameters
   warmup_epochs:
-    values: [0, 5]
-  
+    values: [0, 5, 10]

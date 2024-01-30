@@ -1,5 +1,6 @@
 wandb_api_key.txt
-wandb/
+wandb/*
 output/*
-*/__pycache__
-__pycache__
+*.pyc
+*.err
+*.out
