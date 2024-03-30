@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import matplotlib.pyplot as plt
 from utils.custom_cmap import cmap
 
@@ -52,28 +53,40 @@ def log_slice(config, PET_measurements, K_prediction):
 
 def log_curves(PET_measurements, PET_prediction, t, time_stamp, current_epoch):
   b = PET_measurements.shape[0]
-  fig, ax = plt.subplots(nrows=b, ncols=6, figsize=(2*5, 2*b))
+  fig, ax = plt.subplots(nrows=b, ncols=8, figsize=(2*5, 2*b))
   if b == 1:
     for i in range(5):  
-      ax[i].plot(time_stamp, PET_measurements[0, 0, :, (i+2)*10, (i+2)*10], color="tab:red", label="mes")
-      if current_epoch > 0: ax[i].plot(t, PET_prediction[0, 0, :, (i+2)*10, (i+2)*10], color="tab:green", label="pred")
-      ax[i].set_title("Voxel: ["+str((i+2)*10)+", "+str((i+2)*10)+"]")
+      ax[i].plot(time_stamp, PET_measurements[0, 0, :, (i+2)*20, (i+2)*20], color="tab:red", label="mes")
+      if current_epoch > 0: ax[i].plot(t, PET_prediction[0, 0, :, (i+2)*20, (i+2)*20], color="tab:green", label="pred")
+      ax[i].set_title("Voxel: ["+str((i+2)*20)+", "+str((i+2)*20)+"]")
       # ax[i].set_ylim([0, 10])
     ax[4].legend()
+    # 5. Correlation
     im = ax[5].imshow(torch.nn.functional.cosine_similarity(torch.from_numpy(PET_measurements[0, 0, :, :, :]), torch.from_numpy(PET_prediction[0, 0, :, :, :]), 0), vmin=-1, vmax=1)
     ax[5].set_title("Correlation")
     plt.colorbar(im, ax=ax[5], fraction=0.046, pad=0.04)
+    # 6. Raw PET Measurements
+    im = ax[6].imshow(PET_measurements[0, 0, 10, :, :], vmax=np.max(PET_measurements[0, 0, 10, :, :])/2)
+    ax[6].set_title("PET (t=10)")
+    # 7. Raw PET Predictions
+    im = ax[7].imshow(PET_prediction[0, 0, 10, :, :], vmax=np.max(PET_prediction[0, 0, 10, :, :])/2)
+    ax[7].set_title("PET (t=10) pred")
+
   else:
     for j in range(PET_measurements.shape[0]):
       for i in range(5):  
-        ax[j, i].plot(time_stamp, PET_measurements[j, 0, :, (i+2)*10, (i+2)*10],  color="tab:red", label="mes")
-        if current_epoch > 0: ax[j, i].plot(t, PET_prediction[j, 0, :, (i+2)*10, (i+2)*10], color="tab:green", label="pred")
+        ax[j, i].plot(time_stamp, PET_measurements[j, 0, :, (i+2)*20, (i+2)*20],  color="tab:red", label="mes")
+        if current_epoch > 0: ax[j, i].plot(t, PET_prediction[j, 0, :, (i+2)*20, (i+2)*20], color="tab:green", label="pred")
         # ax[j, i].set_ylim([0, 10])
-        ax[0, i].set_title("Voxel: ["+str((i+2)*10)+", "+str((i+2)*10)+"]")
+        ax[0, i].set_title("Voxel: ["+str((i+2)*20)+", "+str((i+2)*20)+"]")
       ax[j, 0].set_ylabel("Element "+str(j)+" in batch")
       im = ax[j, 5].imshow(torch.nn.functional.cosine_similarity(torch.from_numpy(PET_measurements[j, 0, :, :, :]), torch.from_numpy(PET_prediction[j, 0, :, :, :]), 0), vmin=-1, vmax=1)
       ax[0, 5].set_title("Correlation")
       plt.colorbar(im, ax=ax[j, 5], fraction=0.046, pad=0.04)
+      im = ax[j, 6].imshow(PET_measurements[j, 0, 10, :, :].to("cpu"), vmax=torch.max(PET_measurements[j, 0, 10, :, :].to("cpu")).item()/2)
+      ax[j, 6].set_title("PET (t=10)")
+      im = ax[j, 7].imshow(PET_prediction[j, 0, 10, :, :].to("cpu"), vmax=torch.max(PET_prediction[j, 0, 10, :, :].to("cpu")).item()/2)
+      ax[j, 7].set_title("PET (t=10) pred")
     ax[0, 4].legend()
   plt.tight_layout()
   return fig

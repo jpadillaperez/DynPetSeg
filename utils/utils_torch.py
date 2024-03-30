@@ -1,6 +1,7 @@
 # Inspired by: https://github.com/pytorch/pytorch/issues/50334
 
 import torch
+import torch.nn as nn
 from torch import Tensor
 from torch.optim.lr_scheduler import _LRScheduler
 
@@ -72,6 +73,7 @@ def torch_conv_batch(in1, in2):
   o = torch.flip(o, (0, 2))
   return o
 
+
 class WarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, total_epochs, warmup_epochs, last_epoch=-1):
         self.warmup_epochs = warmup_epochs
@@ -82,3 +84,34 @@ class WarmupScheduler(_LRScheduler):
         if self.last_epoch < self.warmup_epochs:
             return [base_lr * float(self.last_epoch) / self.warmup_epochs for base_lr in self.base_lrs]
         return [base_lr for base_lr in self.base_lrs]
+
+
+
+def weights_init_kaiming(m):
+    '''
+    Initialize weights of the model using Kaiming initialization (He et al., 2015).
+    '''
+    # Initialize Conv3d and ConvTranspose3d layers
+    if isinstance(m, nn.Conv3d) or isinstance(m, nn.ConvTranspose3d):
+        nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu') # ReLU is fine also for ELU
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    # Initialize BatchNorm3d layers
+    elif isinstance(m, nn.BatchNorm3d):
+        nn.init.constant_(m.weight, 1)
+        nn.init.constant_(m.bias, 0)
+
+
+def weights_init_xavier(m):
+    '''
+    Initialize weights of the model using Xavier initialization (Glorot et al., 2010).
+    '''
+    # Initialize Conv3d and ConvTranspose3d layers
+    if isinstance(m, nn.Conv3d) or isinstance(m, nn.ConvTranspose3d):
+        nn.init.xavier_normal_(m.weight)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    # Initialize BatchNorm3d layers
+    elif isinstance(m, nn.BatchNorm3d):
+        nn.init.constant_(m.weight, 1)
+        nn.init.constant_(m.bias, 0)

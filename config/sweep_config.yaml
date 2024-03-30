@@ -13,22 +13,23 @@ parameters:
   #final_activation:     # Modality
   #  values: ["clamp", "multi_clamp"]
 
-  #learning_rate:
-  #  values: [0.01, 0.001, 0.0001, 0.00001]
+  learning_rate:
+    min: 1e-5
+    max: 1e-3
+    distribution: uniform
   
   #lr_scheduler:
   #  values: ["CosineAnnealingLR", "ReduceLROnPlateau", "MultiStepLR"]
 
-  # Conditional parameters for CosineAnnealingLR
+  #Conditional parameters for CosineAnnealingLR
   cosine_T_max:
-    values: [5, 10, 20]
-
+    values: [10, 20, 30]
   cosine_eta_min:
-    values: [0, 1e-5, 1e-4]
+    values: [1e-6, 1e-5, 1e-4]
 
   # Conditional parameters for MultiStepLR
   #multistep_milestones:
-  #  values: [[20, 40], [30, 60, 90], [25, 50, 75, 100]]
+  #  values: [[20, 40], [30, 60, 90], [25, 50, 75, 100]] [[30, 60, 90], [20, 40, 60], [10, 20, 30]]
   #multistep_gamma:
   #  values: [0.5, 0.7, 0.9]
 
@@ -36,7 +37,7 @@ parameters:
   #reduce_factor:
   #  values: [0.5, 0.3, 0.1]
   #reduce_patience:
-  #  values: [5, 10, 15]
+  #  values: [5, 10]
 
   ## Optimizer parameters
   #weight_decay:
@@ -47,5 +48,10 @@ parameters:
   #  values: [0.999, 0.995, 0.99]
 
   # Other training parameters
-  warmup_epochs:
-    values: [0, 5, 10]
+  #warmup_epochs:
+  #  values: [0, 5, 10]
+
+early_terminate:
+  type: hyperband
+  min_iter: 3
+  eta: 2
