@@ -44,7 +44,11 @@ patient_list:
         }
 
 segmentation_list:
-  value:  ["liver", "pancreas", "kidney_left", "kidney_right", "brain", "urinary_bladder"]
+  value: ["liver", "urinary_bladder"]
+  #value:  ["liver", "pancreas", "kidney_left", "kidney_right", "brain", "urinary_bladder"]
+
+remove_slices_without_segmentation:
+  value: True
 
 # Should be: 
 # - "all" if all the slices must be included
@@ -64,11 +68,10 @@ epochs:
   value: 600
 
 continue_checkpoint:
-  #value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/magic-music-686/last.ckpt"
   value: None
 
 kinetic_checkpoint:
-  value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/lucky-firefly-685/last.ckpt"
+  value: "/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/lucky-firefly-685/epoch=129-step=164840.ckpt"
 
 batch_norm: 
   desc: Use of batch normalization
@@ -78,7 +81,7 @@ learning_rate:
   value: 0.0001 
 
 batch_size: 
-  value: 1
+  value: 8
 
 lr_scheduler:
   value: "ReduceLROnPlateau" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau

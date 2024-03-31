@@ -44,7 +44,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
     else:
       self.model = UNet(in_channels=1, out_channels=self.config["output_size"], config=self.config)
 
-    self.loss_function = DiceLoss(squared_pred=True, reduction="mean")
+    self.loss_function = DiceLoss(squared_pred=True, reduction="mean", softmax=True)
 
     self.validation_step_outputs = []
 
@@ -53,9 +53,13 @@ class SpaceTempUNetSeg(pl.LightningModule):
     
     if stage == "fit":
       self.train_dataset = DynPETDataset(self.config, "train", patch_size=self.config["patch_size"])
+      if self.config["remove_slices_without_segmentation"]:
+        self.train_dataset.remove_slices_without_segmentation()
       self.idif_train_set = self.train_dataset.idif
 
       self.val_dataset = DynPETDataset(self.config, "validation", patch_size=self.train_dataset.__get_patch_size__())
+      if self.config["remove_slices_without_segmentation"]:
+        self.val_dataset.remove_slices_without_segmentation()
       self.idif_val_set = self.val_dataset.idif
 
       self.t = self.train_dataset.t.to(machine)
@@ -68,6 +72,8 @@ class SpaceTempUNetSeg(pl.LightningModule):
 
     if stage == "test":
       self.test_dataset = DynPETDataset(self.config, "test")
+      if self.config["remove_slices_without_segmentation"]:
+        self.test_dataset.remove_slices_without_segmentation()
       self.patch_size = self.test_dataset.__get_patch_size__()
       print("Patch size: ", self.patch_size)
       self.idif_test_set = self.test_dataset.idif

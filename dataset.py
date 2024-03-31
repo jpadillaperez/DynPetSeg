@@ -10,7 +10,6 @@ from utils.utils_kinetic import PET_2TC_KM
 from utils.utils_torch import torch_interp_1d
 from utils.set_root_paths import root_data_path, root_dataset_path
 from tqdm import tqdm
-from pympler import asizeof
 
 class DynPETDataset(CacheDataset):
     def __init__(self, config, dataset_type, patch_size=0):
@@ -65,6 +64,26 @@ class DynPETDataset(CacheDataset):
     
     def __get_patch_size__(self):
         return self.patch_size
+    
+    def remove_slices_without_segmentation(self):
+        #Remove slices without segmentation
+        data_list = list()
+        data_seg_list = list()
+        for idx in range(len(self.data_list)):
+            #open the segmentation
+            seg = torch.load(self.data_seg_list[idx])[3].to(torch.int16).type(torch.cuda.IntTensor)
+            
+            print("Values in segmentation: ", torch.unique(seg))
+            #Check if the segmentation has any value different from 0
+            if torch.sum(seg) > 0:
+                data_list.append(self.data_list[idx])
+                data_seg_list.append(self.data_seg_list[idx])
+            else:
+                print("WARNING: Empty slice! Removing slice: " + str(self.data_list[idx]))
+        self.data_list = data_list
+        self.data_seg_list = data_seg_list
+        self.length = len(self.data_list)
+        return
     
     def build_dataset(self, current_config):
         self.patient_list = current_config["patient_list"]

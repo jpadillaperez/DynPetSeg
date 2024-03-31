@@ -1,6 +1,7 @@
 wandb_api_key.txt
 wandb/*
 output/*
+ckpts/*
 *.pyc
 *.err
 *.out
