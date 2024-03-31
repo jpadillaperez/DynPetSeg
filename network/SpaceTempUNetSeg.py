@@ -111,14 +111,22 @@ class SpaceTempUNetSeg(pl.LightningModule):
 
 
   def training_step(self, batch, batch_idx):
+    print("Segmentation shape: ", batch[3].shape)
+    print("TAC shape: ", batch[2].shape)
+
     # batch = [patient, slice, TAC, mask]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1)  # adding channel dimension --> [b, 1, 62, w, h]
-    x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1))   # padding --> [b, 1, 64, w, h]
+    x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
     truth = F.one_hot(batch[3].long(), num_classes=self.config["output_size"]).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
+
+    print("TAC shape 2: ", x.shape)
+    print("Segmentation shape 2: ", truth.shape)
 
     # Forward pass
     output = self.forward(x)        # [b, SEG, 1, w, h]
     output = output.squeeze(2)  # [b, SEG, w, h]
+
+    print("Output shape: ", output.shape)
 
     # Compute the loss with the segmentation mask
     loss = self.loss_function(output, truth)

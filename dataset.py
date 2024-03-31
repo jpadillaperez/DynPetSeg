@@ -57,6 +57,8 @@ class DynPETDataset(CacheDataset):
         assert self.data_list[idx].split("_")[-1].split(".")[0] == self.data_seg_list[idx].split("_")[-1].split(".")[0], "Data and segmentation slices don't match"
         assert self.data_list[idx].split("_")[-2].split("data")[-1] == self.data_seg_list[idx].split("_")[-2].split("seg")[-1], "Data and segmentation patients don't match"
         
+        print("Data seg unique values: ", torch.unique(item_seg))
+
         return item
 
     def __len__(self):
@@ -66,23 +68,22 @@ class DynPETDataset(CacheDataset):
         return self.patch_size
     
     def remove_slices_without_segmentation(self):
-        #Remove slices without segmentation
         data_list = list()
         data_seg_list = list()
         for idx in range(len(self.data_list)):
-            #open the segmentation
-            seg = torch.load(self.data_seg_list[idx])[3].to(torch.int16).type(torch.cuda.IntTensor)
-            
-            print("Values in segmentation: ", torch.unique(seg))
+            seg = torch.load(self.data_seg_list[idx])[2].to(torch.int16).type(torch.cuda.IntTensor)
             #Check if the segmentation has any value different from 0
             if torch.sum(seg) > 0:
+                assert self.data_list[idx].split("_")[-1].split(".")[0] == self.data_seg_list[idx].split("_")[-1].split(".")[0], "Data and segmentation slices don't match"
+                assert self.data_list[idx].split("_")[-2].split("data")[-1] == self.data_seg_list[idx].split("_")[-2].split("seg")[-1], "Data and segmentation patients don't match"
                 data_list.append(self.data_list[idx])
                 data_seg_list.append(self.data_seg_list[idx])
-            else:
-                print("WARNING: Empty slice! Removing slice: " + str(self.data_list[idx]))
+
         self.data_list = data_list
         self.data_seg_list = data_seg_list
         self.length = len(self.data_list)
+
+        print("New Dataset", self.dataset_type, "has", self.length, "slices and length", self.length, "\n")
         return
     
     def build_dataset(self, current_config):
@@ -293,7 +294,7 @@ class DynPETDataset(CacheDataset):
                 #Iterate over all the segmentations of the dynamic pets of the same patients
                 segmentation_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentation/*.nii.gz")
                 segmentation_list = [s for s in segmentation_list if s.split("/")[-1].split(".")[0] in self.train_config["segmentation_list"]]
-                current_seg_data = torch.zeros((max_num_slices, len(segmentation_list), size, size))  #[SLICES, SEGMENTATION, X, Y] TODO: better [SEGMENTATION, SLICES, X, Y]?
+                current_seg_data = torch.zeros((max_num_slices, len(segmentation_list) + 1, size, size))  #[SLICES, SEGMENTATION, X, Y] TODO: better [SEGMENTATION, SLICES, X, Y]?
 
                 for i, s in enumerate(tqdm(segmentation_list, desc="Processing segmentations")):
                     current_segmentation = torch.from_numpy(sitk.GetArrayFromImage(sitk.ReadImage(s)))
@@ -310,14 +311,14 @@ class DynPETDataset(CacheDataset):
                         slice_center = torch.tensor(current_segmentation[0, :, :].shape)[0] / 2
                         for slice in np.array(slices_in_patient[0]).repeat(len(segmentation_list)):
                             current_slice = current_segmentation[slice, int(slice_center)-int(size/2):int(slice_center)+int(size/2), int(slice_center)-int(size/2):int(slice_center)+int(size/2)]
-                            current_seg_data[slice, i, :, :] = current_slice
+                            current_seg_data[slice, i + 1, :, :] = current_slice
                     else:
                         #If patch_size is bigger than the size of the original pet, make padding with background value as minimum value of the pet
                         for slice in np.array(slices_in_patient[0]).repeat(len(segmentation_list)):
                             m, n = current_segmentation[slice, :, :].shape
                             padding = ((max(0, size - m), max(0, size - m)), (max(0, size - n), max(0, size - n)))
                             current_slice = torch.from_numpy(np.pad(current_segmentation[slice, :, :], padding, 'constant', constant_values=(0, 0)))
-                            current_seg_data[slice, i, :, :] = current_slice
+                            current_seg_data[slice, i + 1, :, :] = current_slice
 
                 assert current_data.shape[0] == current_seg_data.shape[0], "The number of slices in the PET and the segmentation are different"
                 assert current_data.shape[2] == current_seg_data.shape[2], "The size of the PET and the segmentation are different"

@@ -135,7 +135,7 @@ def train_seg_unet(kinetic_resume_path=None, resume_path=None, enable_testing=Fa
 
   early_stop_callback = EarlyStopping(monitor="val_loss", 
                                       min_delta=0, 
-                                      patience=25,
+                                      patience=50,
                                       verbose=True, 
                                       mode="min",
                                       check_finite=True

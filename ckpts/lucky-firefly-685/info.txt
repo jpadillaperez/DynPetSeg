@@ -1,0 +1,2 @@
+Kinetic Images reconstruction with three patients for training
+https://wandb.ai/jpadillaperez/DynamicPet_segmentation/runs/hs8skh5n/workspace?nw=nwuserjpadillaperez
