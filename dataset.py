@@ -57,8 +57,6 @@ class DynPETDataset(CacheDataset):
         assert self.data_list[idx].split("_")[-1].split(".")[0] == self.data_seg_list[idx].split("_")[-1].split(".")[0], "Data and segmentation slices don't match"
         assert self.data_list[idx].split("_")[-2].split("data")[-1] == self.data_seg_list[idx].split("_")[-2].split("seg")[-1], "Data and segmentation patients don't match"
         
-        print("Data seg unique values: ", torch.unique(item_seg))
-
         return item
 
     def __len__(self):
@@ -76,6 +74,7 @@ class DynPETDataset(CacheDataset):
             if torch.sum(seg) > 0:
                 assert self.data_list[idx].split("_")[-1].split(".")[0] == self.data_seg_list[idx].split("_")[-1].split(".")[0], "Data and segmentation slices don't match"
                 assert self.data_list[idx].split("_")[-2].split("data")[-1] == self.data_seg_list[idx].split("_")[-2].split("seg")[-1], "Data and segmentation patients don't match"
+                
                 data_list.append(self.data_list[idx])
                 data_seg_list.append(self.data_seg_list[idx])
 

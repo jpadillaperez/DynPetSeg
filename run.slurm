@@ -6,8 +6,7 @@
 #SBATCH --time=03-00:00:00  # Limit on the total run time (format: days-hours:minutes:seconds)
 #SBATCH --gres=gpu:1
 #SBATCH --mem=46G  # Memory limit
-#SBATCH --cpus-per-task=8  # Number of CPU cores per task
-# #SBATCH --nodelist=unimatrix1  # Node to run the job on
+#SBATCH --cpus-per-task=12  # Number of CPU cores per task
 
 CURRENT_LOG_DIR=output/logs
 OLD_LOG_DIR=output/logs/previous_logs

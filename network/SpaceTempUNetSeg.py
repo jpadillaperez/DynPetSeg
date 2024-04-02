@@ -35,7 +35,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
 
     # Read configuration file and add new info if needed
     self.config = config
-    self.config["output_size"] = len(self.config["segmentation_list"])
+    self.config["output_size"] = len(self.config["segmentation_list"]) + 1
 
     print("\nConfiguration: ", self.config)
 
@@ -44,8 +44,8 @@ class SpaceTempUNetSeg(pl.LightningModule):
     else:
       self.model = UNet(in_channels=1, out_channels=self.config["output_size"], config=self.config)
 
-    self.loss_function = DiceLoss(squared_pred=True, reduction="mean", softmax=True)
-
+    self.loss_function = DiceLoss(squared_pred=True, reduction="mean")
+    self.softmax = torch.nn.Softmax(dim=1)
     self.validation_step_outputs = []
 
   def setup(self, stage): 
@@ -111,24 +111,17 @@ class SpaceTempUNetSeg(pl.LightningModule):
 
 
   def training_step(self, batch, batch_idx):
-    print("Segmentation shape: ", batch[3].shape)
-    print("TAC shape: ", batch[2].shape)
-
     # batch = [patient, slice, TAC, mask]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1)  # adding channel dimension --> [b, 1, 62, w, h]
     x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
-    truth = F.one_hot(batch[3].long(), num_classes=self.config["output_size"]).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
-
-    print("TAC shape 2: ", x.shape)
-    print("Segmentation shape 2: ", truth.shape)
+    truth = F.one_hot(batch[3].long(), num_classes=len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
     # Forward pass
     output = self.forward(x)        # [b, SEG, 1, w, h]
     output = output.squeeze(2)  # [b, SEG, w, h]
 
-    print("Output shape: ", output.shape)
-
     # Compute the loss with the segmentation mask
+    output = self.softmax(output)
     loss = self.loss_function(output, truth)
 
     output = torch.argmax(output, dim=1)
@@ -142,6 +135,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
     if batch_idx % self.config["log_img_freq"] == 0:   
       # Log Segmentation
       plt.figure()
+      plt.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
       #First subplot
       plt.subplot(1, 5, 1)
       plt.imshow(truth[0, :, :].cpu().detach().numpy(), cmap="gray")
@@ -181,15 +175,17 @@ class SpaceTempUNetSeg(pl.LightningModule):
     return {"loss": loss}
 
   def validation_step(self, batch, batch_idx):
+
     # batch = [patient, slice, TAC, mask]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1) # adding channel dimension --> [b, 1, 62, w, h]
     x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
-    truth = F.one_hot(batch[3].long(), num_classes=self.config["output_size"]).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
+    truth = F.one_hot(batch[3].long(), num_classes=len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
     output = self.forward(x)        # [b, SEG, 1, w, h]
     output = output.squeeze(2)
 
     # Compute the loss with the segmentation mask
+    output = self.softmax(output)
     loss = self.loss_function(output, truth)
     
     output = torch.argmax(output, dim=1).float()
@@ -201,6 +197,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
     if batch_idx % self.config["log_img_freq"] == 0:
       # Log Segmentation
       fig = plt.figure()
+      plt.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
       #First subplot
       plt.subplot(1, 5, 1)
       plt.imshow(truth[0, :, :].cpu().detach().numpy(), cmap="gray")

@@ -9,20 +9,20 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from utils.set_root_paths import root_path, root_checkpoints_path
 from network import SpaceTempUNet, SpaceTempUNetSeg
 
-#torch.cuda.empty_cache()
+#os.environ["WANDB_MODE"] = "offline"
+torch.cuda.empty_cache()
 torch.autograd.set_detect_anomaly(True)
 torch.use_deterministic_algorithms(mode=True, warn_only=True)
 #torch.set_float32_matmul_precision('medium') #APUNTAR EN NOTES QUE ESTO ES HORROROSO
 
 if not torch.cuda.is_available():   
-  current_gpu = None    
-  machine = "cpu"
+  current_device = 1
+  accelerator = "cpu"
   print("*** ERROR: no GPU available ***")
 else:
-  machine = "cuda:0"
-  current_gpu = [0]
+  current_device = [0]
+  accelerator = "gpu"
   print("Total GPU Memory {} Gb".format(torch.cuda.get_device_properties(0).total_memory/1e9))
-
 #----------------------------------------------
 
 def train_unet(resume_path=None, enable_testing=False):
@@ -59,7 +59,7 @@ def train_unet(resume_path=None, enable_testing=False):
                                       )
   
   trainer = pl.Trainer(devices=current_gpu,
-                        accelerator="gpu",
+                        accelerator=accelerator,
                         max_epochs=unet.config["epochs"],
                         enable_checkpointing=True,
                         num_sanity_val_steps=1,
@@ -142,8 +142,8 @@ def train_seg_unet(kinetic_resume_path=None, resume_path=None, enable_testing=Fa
                                       )
   
   # Trainer
-  trainer = pl.Trainer(devices=current_gpu,
-                        accelerator="gpu",
+  trainer = pl.Trainer(devices=current_device,
+                        accelerator=accelerator,
                         max_epochs=unet.config["epochs"],
                         enable_checkpointing=True,
                         num_sanity_val_steps=1,
