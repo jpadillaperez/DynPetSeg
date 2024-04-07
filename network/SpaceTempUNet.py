@@ -16,17 +16,10 @@ from utils.utils_logging import log_slice, log_curves, mask_data
 import utils.similaritymeasures_torch as similaritymeasures_torch
 from utils.utils_main import make_save_folder_struct, reconstruct_prediction, apply_final_activation
 from utils.utils_torch import torch_interp_Nd, WarmupScheduler, weights_init_kaiming, weights_init_xavier
-
-if not torch.cuda.is_available():
-  machine = "cpu"
-else:
-  machine = "cuda:0"
-
 #----------------------------------------------
 
 class SpaceTempUNet(pl.LightningModule):
   def __init__(self, config):
-
     # Enforce determinism
     seed = 0
     torch.manual_seed(seed)
@@ -78,9 +71,9 @@ class SpaceTempUNet(pl.LightningModule):
 
       self.patch_size = self.train_dataset.__get_patch_size__()
 
-      self.t = self.train_dataset.t.to(machine)
-      self.time_stamp = self.train_dataset.time_stamp.to(machine)
-      self.frame_duration_batch = torch.from_numpy(np.array(self.frame_duration)).unsqueeze(-1).repeat(1, self.patch_size*self.patch_size).to(machine)
+      self.t = self.train_dataset.t.to(self.config["device"])
+      self.time_stamp = self.train_dataset.time_stamp.to(self.config["device"])
+      self.frame_duration_batch = torch.from_numpy(np.array(self.frame_duration)).unsqueeze(-1).repeat(1, self.patch_size*self.patch_size).to(self.config["device"])
       
       self.t_batch = self.t.repeat(self.patch_size*self.patch_size, 1, 1)
       self.time_stamp_batch = self.time_stamp.repeat(self.patch_size*self.patch_size, 1, 1)
@@ -89,8 +82,8 @@ class SpaceTempUNet(pl.LightningModule):
       self.test_dataset = DynPETDataset(self.config, "test")
       self.patch_size = self.test_dataset.__get_patch_size__()
       self.idif_test_set = self.test_dataset.idif
-      self.t = self.test_dataset.t.to(machine)
-      self.time_stamp = self.test_dataset.time_stamp.to(machine)
+      self.t = self.test_dataset.t.to(self.config["device"])
+      self.time_stamp = self.test_dataset.time_stamp.to(self.config["device"])
       self.t_batch = self.t.repeat(self.patch_size*self.patch_size, 1, 1)
       self.time_stamp_batch = self.time_stamp.repeat(self.patch_size*self.patch_size, 1, 1)
 
@@ -100,7 +93,7 @@ class SpaceTempUNet(pl.LightningModule):
     return x
   
   def loss_function(self, pred_TAC, real_TAC):        
-    loss = similaritymeasures_torch.mse(pred_TAC.to(machine).double(), real_TAC.to(machine).double())
+    loss = similaritymeasures_torch.mse(pred_TAC.to(self.config["device"]).double(), real_TAC.to(self.config["device"]).double())
     return loss
   
   def train_dataloader(self):
@@ -178,32 +171,32 @@ class SpaceTempUNet(pl.LightningModule):
 
         if return_value is None or return_value == "Metric":  
           if self.config["mask_loss"]:
-              square = torch.square(current_TAC_pred_batch.to(machine) - current_TAC_batch.to(machine))
+              square = torch.square(current_TAC_pred_batch.to(self.config["device"]) - current_TAC_batch.to(self.config["device"]))
               metric_mse += torch.sum(square).item() / len(mask[mask>0])
 
-              absolute = torch.abs(current_TAC_pred_batch.to(machine) - current_TAC_batch.to(machine))
+              absolute = torch.abs(current_TAC_pred_batch.to(self.config["device"]) - current_TAC_batch.to(self.config["device"]))
               metric_mae += torch.sum(absolute).item() / len(mask[mask>0])
 
-              cosine_sim_slice = torch.nn.functional.cosine_similarity(current_TAC_pred_batch.to(machine), current_TAC_batch.to(machine), 0)
+              cosine_sim_slice = torch.nn.functional.cosine_similarity(current_TAC_pred_batch.to(self.config["device"]), current_TAC_batch.to(self.config["device"]), 0)
               cosine_sim += torch.sum(cosine_sim_slice).item() / len(maskk[maskk>0])
 
-              weights = (self.frame_duration_batch * torch.exp(-0.00631 * time_stamp_batch)) / (current_TAC_batch.to(machine))
+              weights = (self.frame_duration_batch * torch.exp(-0.00631 * time_stamp_batch)) / (current_TAC_batch.to(self.config["device"]))
               weights = torch.nan_to_num(weights, posinf=1)
               chi2_slice = torch.sum(torch.multiply(square, weights), axis=0)
               chi2 += torch.sum(chi2_slice).item() / len(maskk[maskk>0])
           else:
-              metric_mse += similaritymeasures_torch.mse(current_TAC_pred_batch.to(machine), current_TAC_batch.to(machine)).item()
-              metric_mae += similaritymeasures_torch.mae(current_TAC_pred_batch.to(machine), current_TAC_batch.to(machine)).item()
-              cosine_sim += torch.mean(torch.nn.functional.cosine_similarity(current_TAC_pred_batch.to(machine), current_TAC_batch.to(machine), 0)).item()
+              metric_mse += similaritymeasures_torch.mse(current_TAC_pred_batch.to(self.config["device"]), current_TAC_batch.to(self.config["device"])).item()
+              metric_mae += similaritymeasures_torch.mae(current_TAC_pred_batch.to(self.config["device"]), current_TAC_batch.to(self.config["device"])).item()
+              cosine_sim += torch.mean(torch.nn.functional.cosine_similarity(current_TAC_pred_batch.to(self.config["device"]), current_TAC_batch.to(self.config["device"]), 0)).item()
 
-              square = torch.square(current_TAC_pred_batch.to(machine) - current_TAC_batch.to(machine))
-              weights = (self.frame_duration_batch * torch.exp(-0.00631 * time_stamp_batch)) / (current_TAC_batch.to(machine))
+              square = torch.square(current_TAC_pred_batch.to(self.config["device"]) - current_TAC_batch.to(self.config["device"]))
+              weights = (self.frame_duration_batch * torch.exp(-0.00631 * time_stamp_batch)) / (current_TAC_batch.to(self.config["device"]))
               weights = torch.nan_to_num(weights, posinf=1)
               chi2_slice = torch.sum(torch.multiply(square, weights), axis=0)
               chi2 += torch.mean(chi2_slice).item()
           
           # The following metrics are the same independently from self.config["mask_loss"]
-          r2 += similaritymeasures_torch.r2(current_TAC_pred_batch.to(machine), current_TAC_batch.to(machine)).item()
+          r2 += similaritymeasures_torch.r2(current_TAC_pred_batch.to(self.config["device"]), current_TAC_batch.to(self.config["device"])).item()
 
           if self.config["use_pearson_metric"]:
               for j in range(h*w):
@@ -276,7 +269,7 @@ class SpaceTempUNet(pl.LightningModule):
     Vb = kinetic_params[:, 3, :].unsqueeze(1)
 
     # Compute the TAC
-    current_pred_curve = PET_2TC_KM_batch(idif_batch.to(machine), self.t_batch.to(machine), k1.to(machine), k2.to(machine), k3.to(machine), Vb.to(machine))
+    current_pred_curve = PET_2TC_KM_batch(idif_batch.to(self.config["device"]), self.t_batch.to(self.config["device"]), k1.to(self.config["device"]), k2.to(self.config["device"]), k3.to(self.config["device"]), Vb.to(self.config["device"]))
 
     return current_pred_curve, None
 

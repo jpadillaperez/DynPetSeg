@@ -45,10 +45,10 @@ patient_list:
 
 segmentation_list:
   #value: ["urinary_bladder"]
-  #value: ["urinary_bladder", "liver"]
+  value: ["urinary_bladder", "liver"]
   #value: ["urinary_bladder", "liver", "pancreas"]
   #value: ["urinary_bladder", "liver", "pancreas", "lung"]
-  value: ["urinary_bladder", "liver", "pancreas", "lung", "heart"]
+  #value: ["urinary_bladder", "liver", "pancreas", "lung", "heart"]
 
 remove_slices_without_segmentation:
   value: True
@@ -74,17 +74,18 @@ continue_checkpoint:
   value: ""
 
 kinetic_checkpoint:
-  value: "/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/lucky-firefly-685/epoch=129-step=164840.ckpt"
-
+  #value: "/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/lucky-firefly-685/epoch=129-step=164840.ckpt"
+  value: ""
+  
 batch_norm: 
   desc: Use of batch normalization
-  value: False
+  value: True
 
 learning_rate:
   value: 0.0001 
 
 batch_size: 
-  value: 12
+  value: 8
 
 lr_scheduler:
   value: "ReduceLROnPlateau" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau

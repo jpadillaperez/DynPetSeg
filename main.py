@@ -16,13 +16,16 @@ torch.use_deterministic_algorithms(mode=True, warn_only=True)
 #torch.set_float32_matmul_precision('medium') #APUNTAR EN NOTES QUE ESTO ES HORROROSO
 
 if not torch.cuda.is_available():   
-  current_device = 1
+  num_device = 1
   accelerator = "cpu"
-  print("*** ERROR: no GPU available ***")
+  device = torch.device("cpu")
+  print("Using CPU")
 else:
-  current_device = [0]
+  num_device = [0]
   accelerator = "gpu"
+  device = torch.device("cuda:0")
   print("Total GPU Memory {} Gb".format(torch.cuda.get_device_properties(0).total_memory/1e9))
+
 #----------------------------------------------
 
 def train_unet(resume_path=None, enable_testing=False):
@@ -36,6 +39,9 @@ def train_unet(resume_path=None, enable_testing=False):
   # Set up Weights&Biases
   wandb.init(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config.yaml"))
   wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config.yaml"))
+
+  # Add device to config
+  wandb.config["device"] = device
 
   # Set up the UNet model
   unet = SpaceTempUNet(wandb.config)
@@ -58,7 +64,7 @@ def train_unet(resume_path=None, enable_testing=False):
                                       check_finite=True
                                       )
   
-  trainer = pl.Trainer(devices=current_gpu,
+  trainer = pl.Trainer(devices=num_device,
                         accelerator=accelerator,
                         max_epochs=unet.config["epochs"],
                         enable_checkpointing=True,
@@ -92,6 +98,7 @@ def train_seg_unet(kinetic_resume_path=None, resume_path=None, enable_testing=Fa
   wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config.yaml"))
 
   # Set up the UNet model
+  wandb.config["device"] = device
   unet = SpaceTempUNetSeg(wandb.config)
 
   # Load all weights
@@ -142,7 +149,7 @@ def train_seg_unet(kinetic_resume_path=None, resume_path=None, enable_testing=Fa
                                       )
   
   # Trainer
-  trainer = pl.Trainer(devices=current_device,
+  trainer = pl.Trainer(devices=num_device,
                         accelerator=accelerator,
                         max_epochs=unet.config["epochs"],
                         enable_checkpointing=True,
@@ -174,9 +181,9 @@ def test_unet(checkpoint_path):
   print("Testing on", checkpoint_path)
 
   wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config.yaml"))
-  unet = SpaceTempUNet(wandb.config)
+  unet = SpaceTempUNet(wandb.config, device=device)
 
-  trainer = pl.Trainer(gpus=current_gpu,
+  trainer = pl.Trainer(gpus=num_device,
                         max_epochs=unet.config["epochs"],
                         enable_checkpointing=True,
                         num_sanity_val_steps=1,

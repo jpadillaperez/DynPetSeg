@@ -15,11 +15,6 @@ from network.unet_blocks_ST import UNet_ST
 import utils.similaritymeasures_torch as similaritymeasures_torch
 from utils.utils_main import make_save_folder_struct, reconstruct_prediction
 
-if not torch.cuda.is_available():
-  machine = "cpu"
-else:
-  machine = "cuda:0"
-
 #----------------------------------------------
 
 class SpaceTempUNetSeg(pl.LightningModule):
@@ -44,8 +39,8 @@ class SpaceTempUNetSeg(pl.LightningModule):
     else:
       self.model = UNet(in_channels=1, out_channels=self.config["output_size"], config=self.config)
 
-    self.loss_function = DiceLoss(squared_pred=True, reduction="mean")
-    self.softmax = torch.nn.Softmax(dim=1)
+    self.loss_function = DiceLoss(squared_pred=True, reduction="mean", softmax=True, include_background=True)
+    #self.softmax = torch.nn.Softmax(dim=1)
     self.validation_step_outputs = []
 
   def setup(self, stage): 
@@ -62,8 +57,8 @@ class SpaceTempUNetSeg(pl.LightningModule):
         self.val_dataset.remove_slices_without_segmentation()
       self.idif_val_set = self.val_dataset.idif
 
-      self.t = self.train_dataset.t.to(machine)
-      self.time_stamp = self.train_dataset.time_stamp.to(machine)
+      self.t = self.train_dataset.t.to(self.config["device"])
+      self.time_stamp = self.train_dataset.time_stamp.to(self.config["device"])
 
       self.patch_size = self.train_dataset.__get_patch_size__()
       print("Patch size: ", self.patch_size)
@@ -77,8 +72,8 @@ class SpaceTempUNetSeg(pl.LightningModule):
       self.patch_size = self.test_dataset.__get_patch_size__()
       print("Patch size: ", self.patch_size)
       self.idif_test_set = self.test_dataset.idif
-      self.t = self.test_dataset.t.to(machine)
-      self.time_stamp = self.test_dataset.time_stamp.to(machine)
+      self.t = self.test_dataset.t.to(self.config["device"])
+      self.time_stamp = self.test_dataset.time_stamp.to(self.config["device"])
       self.t_batch = self.t.repeat(self.patch_size*self.patch_size, 1, 1)
       self.time_stamp_batch = self.time_stamp.repeat(self.patch_size*self.patch_size, 1, 1)
 
@@ -121,7 +116,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
     output = output.squeeze(2)  # [b, SEG, w, h]
 
     # Compute the loss with the segmentation mask
-    output = self.softmax(output)
+    #output = self.softmax(output)
     loss = self.loss_function(output, truth)
 
     output = torch.argmax(output, dim=1)
@@ -185,7 +180,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
     output = output.squeeze(2)
 
     # Compute the loss with the segmentation mask
-    output = self.softmax(output)
+    #output = self.softmax(output)
     loss = self.loss_function(output, truth)
     
     output = torch.argmax(output, dim=1).float()
