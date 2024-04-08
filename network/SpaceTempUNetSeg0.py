@@ -14,10 +14,9 @@ from network.unet_blocks import UNet
 from network.unet_blocks_ST import UNet_ST
 import utils.similaritymeasures_torch as similaritymeasures_torch
 from utils.utils_main import make_save_folder_struct, reconstruct_prediction
-
 #----------------------------------------------
 
-class SpaceTempUNetSeg(pl.LightningModule):
+class SpaceTempUNetSeg0(pl.LightningModule):
   def __init__(self, config):
     # Enforce determinism
     seed = 0
@@ -26,7 +25,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
     np.random.seed(seed)
     pl.seed_everything(seed)
     
-    super(SpaceTempUNetSeg, self).__init__()
+    super(SpaceTempUNetSeg0, self).__init__()
 
     # Read configuration file and add new info if needed
     self.config = config
@@ -108,7 +107,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
   def training_step(self, batch, batch_idx):
     # batch = [patient, slice, TAC, mask]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1)  # adding channel dimension --> [b, 1, 62, w, h]
-    x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
+    x = F.pad(TAC_mes_batch, (0,0,0,0,1,1))   # padding --> [b, 1, 64, w, h]
     truth = F.one_hot(batch[3].long(), num_classes=len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
     # Forward pass
@@ -173,7 +172,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
 
     # batch = [patient, slice, TAC, mask]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1) # adding channel dimension --> [b, 1, 62, w, h]
-    x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
+    x = F.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
     truth = F.one_hot(batch[3].long(), num_classes=len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
     output = self.forward(x)        # [b, SEG, 1, w, h]
@@ -245,7 +244,7 @@ class SpaceTempUNetSeg(pl.LightningModule):
     slices_in_batch = batch[1]
     mask = batch[3]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1) # adding channel dimension --> [b, 1, 62, w, h]
-    x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
+    x = F.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
 
     logits_params = self.forward(x)        # [b, 4, 1, w, h]
 

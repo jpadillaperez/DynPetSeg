@@ -28,6 +28,7 @@ export WANDB_API_KEY=$(cat ./wandb_api_key.txt)
 conda deactivate # If you launch your script from a terminal where your environment is already loaded, conda won't activate the environment. This guards against that. Not necessary if you always run this script from a clean terminal
 conda activate DynPet
 
-python -u ./main.py
+# Run the script
+python -u ./main.py --experiment seg1 --modality train --ckpt False --kinetic_ckpt False
 
 conda deactivate
