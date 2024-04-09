@@ -13,27 +13,21 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(random_seed)
 
 class EncoderBlock(nn.Module):
-
     def __init__(self, in_channels, out_channels, bottleneck, config):
         super(EncoderBlock, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.bottleneck = bottleneck
-        self.use_batch_norm = config["batch_norm"]
-        max_pool_time = config["max_pool_time"]
+        self.use_batch_norm = config["batch_norm_seg"]
 
-        self.kernel = {"stride": 1, "padding": (1, 1, 1), "kernel_size": (3, 3, 3)}
+        self.conv2d_in = nn.Conv2d(in_channels=self.in_channels, out_channels=self.out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2d = nn.Conv2d(in_channels=self.out_channels, out_channels=self.out_channels, kernel_size=3, stride=1, padding=1)
+        self.batch_norm = nn.BatchNorm2d(num_features=self.out_channels)
+        self.pooling = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.conv3d_in = nn.Conv3d(in_channels=self.in_channels, out_channels=self.out_channels, kernel_size=self.kernel["kernel_size"], stride=self.kernel["stride"], padding=self.kernel["padding"])
-        self.conv3d = nn.Conv3d(in_channels=self.out_channels, out_channels=self.out_channels, kernel_size=self.kernel["kernel_size"], stride=self.kernel["stride"], padding=self.kernel["padding"])
-        self.batch_norm = nn.BatchNorm3d(num_features=self.out_channels)
-        
-        if max_pool_time:       self.pooling = nn.MaxPool3d(kernel_size=2, stride=2, padding=0)
-        else:                   self.pooling = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=2, padding=0)
-
-        if config["activation"] == "ELU":     
+        if config["activation"] == "ELU":
             self.activation = nn.ELU()
-        elif config["activation"] == "ReLU":        
+        elif config["activation"] == "ReLU":
             self.activation = nn.ReLU()
         else:
             print("*** Invalid config['activation']: using ELU ***")
@@ -41,32 +35,31 @@ class EncoderBlock(nn.Module):
 
     def forward(self, x):
         i = x
-        o1 = self.conv3d_in(i)
+        o1 = self.conv2d_in(i)
         if self.use_batch_norm:
             o1 = self.batch_norm(o1)
         o2 = self.activation(o1)
 
-        o3 = self.conv3d(o2)
+        o3 = self.conv2d(o2)
         if self.use_batch_norm:
             o3 = self.batch_norm(o3)
         o4 = self.activation(o3)
 
         if not self.bottleneck:
-            skip = torch.cat((i, o4), dim=1)               
-            down_sampling_features = skip                 # Short+Long skip connection
+            skip = torch.cat((i, o4), dim=1)
+            down_sampling_features = skip
             out = self.pooling(o4)
-        else: 
+        else:
             out = o4
             down_sampling_features = None
         return out, down_sampling_features
 
 class Encoder(nn.Module):
     def __init__(self, in_channels, config):
-        # # # print("This is the encoder")
         super(Encoder, self).__init__()
         self.root_feat_maps = 8
-        self.use_batch_norm = config["batch_norm"]
-        model_depth = config["model_depth"]
+        self.use_batch_norm = config["batch_norm_seg"]
+        model_depth = config["model_depth_seg"]
 
         self.module_dict = nn.ModuleDict()
         current_in_channels = in_channels
@@ -74,10 +67,10 @@ class Encoder(nn.Module):
             current_out_channels = 2 ** (depth) * self.root_feat_maps
             encoder_block = EncoderBlock(current_in_channels, current_out_channels, bottleneck=False, config=config)
             self.module_dict["encoder_block_{}".format(depth+1)] = encoder_block
-            current_in_channels = current_out_channels 
+            current_in_channels = current_out_channels
         current_out_channels = 2 ** (model_depth) * self.root_feat_maps
         bottle_neck = EncoderBlock(current_in_channels, current_out_channels, bottleneck=True, config=config)
-        self.module_dict["bottle_neck"] = bottle_neck
+        self.module_dict["bottle_neck_seg"] = bottle_neck
 
     def forward(self, x):
         down_sampling_features = []
@@ -94,45 +87,37 @@ class DecoderBlock(nn.Module):
         self.out_channels = out_channels
         self.skip_channels = skip_channels
         self.final_layer = final_layer
-        self.use_batch_norm = config["batch_norm"]
-        
-        self.kernel = {"stride": 1, "padding": (1, 1, 1), "kernel_size": (3, 3, 3)}
-        self.upkernel = {"stride": (2, 2, 2), "padding": (1, 1, 1), "kernel_size": (3, 3, 3), "output_padding": (1, 1, 1)}
-        self.final_kernel = {"stride": 1, "padding": 1, "kernel_size": 3}
+        self.use_batch_norm = config["batch_norm_seg"]
 
-        self.upconv3d = nn.ConvTranspose3d(in_channels=self.in_channels, out_channels=self.in_channels, 
-                                                    kernel_size=self.upkernel["kernel_size"], stride=self.upkernel["stride"], 
-                                                    padding=self.upkernel["padding"], output_padding=self.upkernel["output_padding"])
-        self.conv3d_skip = nn.Conv3d(in_channels=self.in_channels+self.skip_channels, out_channels=self.out_channels, 
-                                            kernel_size=self.kernel["kernel_size"], stride=self.kernel["stride"], padding=self.kernel["padding"])
-        self.conv3d = nn.Conv3d(in_channels=self.out_channels, out_channels=self.out_channels, 
-                                            kernel_size=self.kernel["kernel_size"], stride=self.kernel["stride"], padding=self.kernel["padding"])
-        
-        self.batch_norm = nn.BatchNorm3d(num_features=self.out_channels)
-        self.batch_norm_skip = nn.BatchNorm3d(num_features=self.in_channels+(self.out_channels))
-        
-        if config["activation"] == "ELU":     
+        self.upconv2d = nn.ConvTranspose2d(in_channels=self.in_channels, out_channels=self.in_channels, kernel_size=2, stride=2)
+        self.conv2d_skip = nn.Conv2d(in_channels=self.in_channels+self.skip_channels, out_channels=self.out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2d = nn.Conv2d(in_channels=self.out_channels, out_channels=self.out_channels, kernel_size=3, stride=1, padding=1)
+
+        self.batch_norm = nn.BatchNorm2d(num_features=self.out_channels)
+        self.batch_norm_skip = nn.BatchNorm2d(num_features=self.in_channels+(self.out_channels))
+
+        if config["activation"] == "ELU":
             self.activation = nn.ELU()
-        elif config["activation"] == "ReLU":        
+        elif config["activation"] == "ReLU":
             self.activation = nn.ReLU()
         else:
             print("*** Invalid config['activation']: using ELU ***")
             self.activation = nn.ELU()
 
         if not self.final_layer is None:
-            self.final_conv_1 = nn.Conv3d(in_channels=self.out_channels, out_channels=self.final_layer, kernel_size=self.final_kernel["kernel_size"], stride=self.final_kernel["stride"], padding=self.final_kernel["padding"])                      
-            self.final_conv_2 = nn.Conv3d(in_channels=self.final_layer, out_channels=self.final_layer, kernel_size=(64, 1, 1), stride=1, padding=0)
+            self.final_conv_1 = nn.Conv2d(in_channels=self.out_channels, out_channels=self.final_layer, kernel_size=3, stride=1, padding=1)
+            self.final_conv_2 = nn.Conv2d(in_channels=self.final_layer, out_channels=self.final_layer, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x, down_f):
         i = x
-        o1 = self.upconv3d(i)
-        o2_skip = torch.cat((o1, down_f), dim=1)             # Long skip connection 
-        o3 = self.conv3d_skip(o2_skip)
+        o1 = self.upconv2d(i)
+        o2_skip = torch.cat((o1, down_f), dim=1)
+        o3 = self.conv2d_skip(o2_skip)
         if self.use_batch_norm:
             o3 = self.batch_norm(o3)
         o4 = self.activation(o3)
 
-        o5 = self.conv3d(o4)
+        o5 = self.conv2d(o4)
         if self.use_batch_norm:
             o5 = self.batch_norm(o5)
         out = self.activation(o5)
@@ -147,8 +132,8 @@ class Decoder(nn.Module):
     def __init__(self, in_channels, out_channels, config):
         super(Decoder, self).__init__()
         self.root_feat_maps = 8
-        self.use_batch_norm = config["batch_norm"]
-        model_depth = config["model_depth"]
+        self.use_batch_norm = config["batch_norm_seg"]
+        model_depth = config["model_depth_seg"]
 
         short_skip_channels = list()
         long_skip_channels = list()
@@ -179,11 +164,11 @@ class Decoder(nn.Module):
             x = op(x, down_f)
         return x
 
-class UNet(nn.Module):
+class UNet_2D(nn.Module):
     def __init__(self, in_channels, out_channels, config):
-        super(UNet, self).__init__()
+        super(UNet_2D, self).__init__()
         
-        print("Instantiating 3D UNet")
+        print("Instantiating 2D U-Net")
 
         self.encoder = Encoder(in_channels, config)
         self.decoder = Decoder(in_channels, out_channels, config)
@@ -194,4 +179,3 @@ class UNet(nn.Module):
         y, h = self.encoder(x)
         z = self.decoder(y, h)
         return z
-

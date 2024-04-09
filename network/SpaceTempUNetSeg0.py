@@ -56,6 +56,9 @@ class SpaceTempUNetSeg0(pl.LightningModule):
         self.val_dataset.remove_slices_without_segmentation()
       self.idif_val_set = self.val_dataset.idif
 
+      if self.config["overfit"]:
+        self.val_dataset = self.train_dataset
+
       self.t = self.train_dataset.t.to(self.config["device"])
       self.time_stamp = self.train_dataset.time_stamp.to(self.config["device"])
 

@@ -45,8 +45,10 @@ def train_unet_seg1(kinetic_resume_path=None, resume_path=None, device=torch.dev
       for name, param in unet.named_parameters():
         if ((name in weights["state_dict"].keys()) and ("final_conv" not in name)):
           param.data = weights["state_dict"][name].data
+        elif "final_conv" in name:
+          print("\tSkipping final_conv")
         else:
-          print("Parameter not found: ", name)
+          print("\tParameter not found: ", name)
 
     # Load all weights
     if resume_path is not None:
@@ -56,7 +58,7 @@ def train_unet_seg1(kinetic_resume_path=None, resume_path=None, device=torch.dev
         if name in weights["state_dict"].keys():
           param.data = weights["state_dict"][name].data
         else:
-          print("Parameter not found: ", name)
+          print("\tParameter not found: ", name)
 
 
     # Callbacks
@@ -73,7 +75,7 @@ def train_unet_seg1(kinetic_resume_path=None, resume_path=None, device=torch.dev
 
     early_stop_callback = EarlyStopping(monitor="val_loss", 
                                         min_delta=0, 
-                                        patience=25,
+                                        patience=50,
                                         verbose=True, 
                                         mode="min",
                                         check_finite=True
@@ -85,7 +87,6 @@ def train_unet_seg1(kinetic_resume_path=None, resume_path=None, device=torch.dev
                           max_epochs=unet.config["epochs"],
                           enable_checkpointing=True,
                           num_sanity_val_steps=1,
-                          log_every_n_steps=unet.config["log_freq"],
                           check_val_every_n_epoch=unet.config["val_freq"],
                           callbacks=[checkpoint_callback, early_stop_callback],
                           logger=wandb_logger
@@ -119,7 +120,6 @@ def test_unet_seg1(checkpoint_path, device=torch.device("cuda:0")):
                          max_epochs=unet.config["epochs"],
                          enable_checkpointing=True,
                          num_sanity_val_steps=1,
-                         log_every_n_steps=unet.config["log_freq"],
                          check_val_every_n_epoch=unet.config["val_freq"],
                          logger=wandb_logger,
                         )

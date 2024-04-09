@@ -1,7 +1,7 @@
-modality: 
-  value: "train" # "test", "train", "sweep", "overfit"
-
 # Architecture
+overfit:
+  value: False
+  
 use_spatio_temporal_unet: #Convolution:: true -> Spatio-temporal, false -> 3D
   value: True
 
@@ -10,6 +10,9 @@ model_depth:
 
 max_pool_time: #Pooling:: true -> 3D, false -> Space
   value: True
+
+final_activation: #Final activation:: multi_clamp, clamp, absolute
+  value: "multi_clamp" 
 
 activation:
   value:  "ELU" #TODO: Add GELU
@@ -41,8 +44,8 @@ patient_list:
         }
 
 segmentation_list:
-  #value: ["brain"]
-  value: ["brain", "liver"]
+  value: ["liver"]
+  #value: ["brain", "liver"]
   #value: ["brain", "liver", "pancreas"]
   #value: ["brain", "liver", "pancreas", "lung"]
   #value: ["brain", "liver", "pancreas", "lung", "heart"]
@@ -66,13 +69,6 @@ slices_per_patient_test:
 # Training options
 epochs: 
   value: 600
-
-continue_checkpoint:
-  value: ""
-
-kinetic_checkpoint:
-  #value: "/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/lucky-firefly-685/epoch=129-step=164840.ckpt"
-  value: ""
   
 batch_norm: 
   desc: Use of batch normalization
@@ -82,7 +78,7 @@ learning_rate:
   value: 0.0001 
 
 batch_size: 
-  value: 8
+  value: 1
 
 lr_scheduler:
   value: "ReduceLROnPlateau" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau
@@ -106,9 +102,7 @@ weight_decay:
   value: 0
 
 # Other training parameters
-log_img_freq:
-  value: 1000
-log_freq:
+log_imgs:
   value: 5
 val_freq:
   value: 5

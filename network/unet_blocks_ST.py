@@ -197,7 +197,7 @@ class UNet_ST(nn.Module):
     def __init__(self, in_channels, out_channels, config):
         super(UNet_ST, self).__init__()
 
-        print("*** THIS IS THE SPATIO-TEMPORAL UNET ***")
+        print("Instantiating Spatio-Temporal UNet")
         
         self.encoder = Encoder(in_channels, config)
         self.decoder = Decoder(in_channels, out_channels, config)

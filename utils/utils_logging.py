@@ -14,7 +14,7 @@ def log_slice(config, PET_measurements, K_prediction):
     im_1 = ax[1].imshow(PET_measurements[0, 0, -1, :, :].to("cpu"), vmax=torch.max(PET_measurements[0, 0, -1, :, :].to("cpu")).item()/2)
     plt.colorbar(im_0, ax=ax[0], fraction=0.046, pad=0.04)
     plt.colorbar(im_1, ax=ax[1], fraction=0.046, pad=0.04)
-    for i in range(config["output_size"]):
+    for i in range(4):
       K_slice = K_prediction[0, i, 0, :, :]
       im = ax[i+2].imshow(K_slice.to("cpu").detach().numpy(), cmap=cmap, vmin=0, vmax=vmax_list[i])
       plt.colorbar(im, ax=ax[i+2], fraction=0.046, pad=0.04)
@@ -34,7 +34,7 @@ def log_slice(config, PET_measurements, K_prediction):
       plt.colorbar(im_0, ax=ax[j, 0], fraction=0.046, pad=0.04)
       plt.colorbar(im_1, ax=ax[j, 1], fraction=0.046, pad=0.04)
       ax[j, 0].set_ylabel("Element "+str(j)+" in batch")
-      for i in range(config["output_size"]):
+      for i in range(4):
           K_slice = K_prediction[j, i, 0, :, :]
           im = ax[j, i+2].imshow(K_slice.to("cpu").detach().numpy(), cmap=cmap, vmin=0, vmax=vmax_list[i])
           plt.colorbar(im, ax=ax[j, i+2], fraction=0.046, pad=0.04)
@@ -83,9 +83,9 @@ def log_curves(PET_measurements, PET_prediction, t, time_stamp, current_epoch):
       im = ax[j, 5].imshow(torch.nn.functional.cosine_similarity(torch.from_numpy(PET_measurements[j, 0, :, :, :]), torch.from_numpy(PET_prediction[j, 0, :, :, :]), 0), vmin=-1, vmax=1)
       ax[0, 5].set_title("Correlation")
       plt.colorbar(im, ax=ax[j, 5], fraction=0.046, pad=0.04)
-      im = ax[j, 6].imshow(PET_measurements[j, 0, 10, :, :].to("cpu"), vmax=torch.max(PET_measurements[j, 0, 10, :, :].to("cpu")).item()/2)
+      im = ax[j, 6].imshow(PET_measurements[j, 0, 10, :, :], vmax=np.max(PET_measurements[j, 0, 10, :, :]).item()/2)
       ax[j, 6].set_title("PET (t=10)")
-      im = ax[j, 7].imshow(PET_prediction[j, 0, 10, :, :].to("cpu"), vmax=torch.max(PET_prediction[j, 0, 10, :, :].to("cpu")).item()/2)
+      im = ax[j, 7].imshow(PET_prediction[j, 0, 10, :, :], vmax=np.max(PET_prediction[j, 0, 10, :, :]).item()/2)
       ax[j, 7].set_title("PET (t=10) pred")
     ax[0, 4].legend()
   plt.tight_layout()

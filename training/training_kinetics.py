@@ -45,7 +45,7 @@ def train_unet_kinetics(resume_path=None, device=torch.device("cuda:0")):
 
     early_stop_callback = EarlyStopping(monitor="val_loss", 
                                         min_delta=0, 
-                                        patience=25,
+                                        patience=50,
                                         verbose=True, 
                                         mode="min",
                                         check_finite=True

@@ -115,7 +115,7 @@ class DynPETDataset(CacheDataset):
             [self.data_list, self.data_seg_list] = load_data
 
         
-        if self.config["modality"] == "overfit" or self.config["modality"] == "overfit_seg":
+        if self.config["overfit"]:
             print("Overfitting mode")
             self.data_list = [self.data_list[0]]
             self.data_seg_list = [self.data_seg_list[0]]
@@ -336,7 +336,7 @@ class DynPETDataset(CacheDataset):
                     maskk = AUC > 10
                     maskk = maskk * 1
                     if torch.sum(maskk) <= 0:
-                        print("WARNING: Empty slice! Patient: " + str(patient) + " Slice: " + str(slice))
+                        print("\t\t\tWARNING: Empty slice! Patient: " + str(patient) + " Slice: " + str(slice))
                         continue
 
                     #----------------- Save data -----------------
@@ -347,18 +347,26 @@ class DynPETDataset(CacheDataset):
                     data_list.append(self.save_data_folder+"/data"+str(patient)+"_"+str(slice)+".pt")
                     seg_list.append(self.save_data_folder+"/seg"+str(patient)+"_"+str(slice)+".pt")
         
-                print("Importing Segmentation...")
+                print("\t\tImporting Segmentation...")
         
         return [data_list, seg_list]
     
     def load_data(self):
         # Define the location where the dataset is saved
-        folder_name = self.dataset_type+"_N"+str(self.current_dataset_size)+"_SEG"+str(len(self.train_config["segmentation_list"]))
+        folder_name = self.dataset_type+"_N"+str(self.current_dataset_size)+"_SEG"+str(len(self.train_config["segmentation_list"]))+"_"
+        for seg in self.train_config["segmentation_list"]:
+            folder_name += seg + "_"
+        folder_name = folder_name[:-1]
+
+        print("Loading dataset", self.dataset_type, "from", folder_name)
+
         self.save_data_folder = os.path.join(root_dataset_path, folder_name)
 
-        # If the dataset exists, load it and return it
-
-        #DONE: JUST SAVE THE LOCATION OF EACH FILE
+        if not os.path.exists(self.save_data_folder):
+            print("WARNING: Dataset files don't exist!")
+            return None
+        
+        print("Patient list: ", self.patient_list, "in", self.dataset_type)
 
         data_list = list()
         data_seg_list = list()
@@ -370,14 +378,10 @@ class DynPETDataset(CacheDataset):
             patient_files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
             patient_seg_files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
 
-            if len(patient_files) == 0:
-                print("WARNING: Dataset files don't exist!")
-                return None
-            else:
-                for file_name in patient_files:
-                    data_list.append(file_name)
-                for file_name in patient_seg_files:
-                    data_seg_list.append(file_name)
+            for file_name in patient_files:
+                data_list.append(file_name)
+            for file_name in patient_seg_files:
+                data_seg_list.append(file_name)
 
         return [data_list, data_seg_list]
         
