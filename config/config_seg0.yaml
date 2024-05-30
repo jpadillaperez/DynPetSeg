@@ -16,9 +16,6 @@ activation:
 
 bounding_box:
   value: False
-  
-clip_grad_norm: #Gradient clipping (0 to disable)
-  value: 0 #1000
 
 weight_init:
   value: None # Options: kaiming, xavier, None
@@ -32,20 +29,20 @@ patient_list:
           #DONE: Use debugging training list for sweep
           #"train": ["01"],
           #"validation": ["01"],
-          #"train": ["01", "07", "06", "10", "15", "19", "21", "23", "27", "29"],
-          "train": ["01", "07", "06"],
-          #"validation": ["14", "17", "18"], #DONE: remove 01 from validation because there is not batch = 5 anymore
-          "validation": ["18", "17"],
+          "train": ["01", "07", "06", "10", "15", "19", "21", "23", "27", "29"],
+          #"train": ["01", "07", "06"],
+          "validation": ["14", "17", "18"], #DONE: remove 01 from validation because there is not batch = 5 anymore
+          #"validation": ["18", "17"],
           #"validation": ["14"],
           "test": ["28", "08", "09", "20", "24", "25", "26", "03"]
         }
 
 segmentation_list:
-  #value: ["urinary_bladder"]
-  value: ["urinary_bladder", "liver"]
-  #value: ["urinary_bladder", "liver", "pancreas"]
-  #value: ["urinary_bladder", "liver", "pancreas", "lung"]
-  #value: ["urinary_bladder", "liver", "pancreas", "lung", "heart"]
+  value: ["liver"]
+  #value: ["brain", "liver"]
+  #value: ["brain", "liver", "pancreas"]
+  #value: ["brain", "liver", "pancreas", "lung"]
+  #value: ["brain", "liver", "pancreas", "lung", "heart"]
 
 remove_slices_without_segmentation:
   value: True
@@ -66,13 +63,6 @@ slices_per_patient_test:
 # Training options
 epochs: 
   value: 600
-
-continue_checkpoint:
-  value: ""
-
-kinetic_checkpoint:
-  #value: "/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/lucky-firefly-685/epoch=129-step=164840.ckpt"
-  value: ""
   
 batch_norm: 
   desc: Use of batch normalization
@@ -106,9 +96,7 @@ weight_decay:
   value: 0
 
 # Other training parameters
-log_img_freq:
-  value: 1000
-log_freq:
+log_imgs:
   value: 5
 val_freq:
   value: 5

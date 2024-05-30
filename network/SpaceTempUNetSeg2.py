@@ -45,18 +45,22 @@ class SpaceTempUNetSeg2(pl.LightningModule):
     
     print("\nConfiguration: ", self.config)
 
+    # Kinetic network
     if self.config["use_spatio_temporal_unet"]:
       self.model_kinetics = UNet_ST(in_channels=1, out_channels=self.config["output_size"], config=self.config)
     else:
       self.model_kinetics = UNet(in_channels=1, out_channels=self.config["output_size"], config=self.config)
 
+    # Segmentation network
     self.model_segmentation = UNet_2D(in_channels=self.config["output_size"], out_channels=self.config["output_size_seg"], config=self.config)
 
+    # Initialize weights
     if self.config["weight_init"] == "kaiming":
       self.model_kinetics.apply(weights_init_kaiming)
     elif self.config["weight_init"] == "xavier":
       self.model_kinetics.apply(weights_init_xavier)
 
+    # Loss function
     self.dice_loss = DiceLoss(squared_pred=True, reduction="mean", softmax=True, include_background=True)
     self.softmax = torch.nn.Softmax(dim=1)
 
@@ -64,6 +68,9 @@ class SpaceTempUNetSeg2(pl.LightningModule):
     self.frame_duration = np.array(frame_duration) / 60  # from s to min
 
     self.validation_step_outputs = []
+
+    self.num_val_log_images = 0
+    self.num_train_log_images = 0
 
   def setup(self, stage): 
     self.stage = stage
@@ -113,7 +120,29 @@ class SpaceTempUNetSeg2(pl.LightningModule):
   def loss_function(self, pred_TAC, real_TAC):
     loss = similaritymeasures_torch.mse(pred_TAC.to(self.config["device"]).double(), real_TAC.to(self.config["device"]).double())
     return loss
-  
+
+  def seg_loss_function(self, pred_seg, real_seg, real_TAC):
+    if self.config["mask_loss"]:
+      time_stamp_batch = self.time_stamp_batch[:, 0, :].permute((1, 0))
+      b, t, h, w = real_TAC.shape                         # [b, 62, w, h]
+      real_TAC = torch.reshape(real_TAC, [b, t, h*w])     # [b, 62, w*h]
+      real_seg = torch.reshape(real_seg, [b, len(self.config["segmentation_list"]) + 1, h*w])  # [b, Seg, w*h]
+      pred_seg = torch.reshape(pred_seg, [b, len(self.config["segmentation_list"]) + 1, h*w])  # [b, Seg, w*h]
+      seg_loss = 0
+      for i in range(b):
+        current_TAC_batch = real_TAC[i, :, :]
+        AUC = torch.trapezoid(current_TAC_batch, time_stamp_batch, dim=0)
+        maskk = AUC > 10
+        maskk = maskk * 1
+        mask = maskk.repeat(len(self.config["segmentation_list"]) + 1, 1)
+        pred_seg = torch.multiply(pred_seg, mask)
+        real_seg = torch.multiply(real_seg, mask)
+        seg_loss += self.dice_loss(pred_seg, real_seg)
+      return seg_loss/b
+    else:
+      return self.dice_loss(pred_seg, real_seg)
+
+
   def train_dataloader(self):
       #num_cpus = multiprocessing.cpu_count()
       num_cpus = 0
@@ -301,57 +330,79 @@ class SpaceTempUNetSeg2(pl.LightningModule):
 
     #Kinetic network
     logits_params = self.forward_kinetics(x)        # [b, 4, 1, w, h]
-    kinetic_params = apply_final_activation(logits_params, self.config)
-    logits_seg = self.forward_segmentation(kinetic_params[:, :, 0, :, :])        # [b, Seg, w, h]
+    _, _, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)
+    if self.config["mask_loss"]:
+      _, _, logits_params = mask_data(TAC_mes_batch, TAC_pred_batch, logits_params, self.time_stamp, patch_size=self.patch_size)
 
-    #Segmentation Loss
-    loss = self.dice_loss(logits_seg, truth_seg)
+    # Segmentation network
+    logits_seg = self.forward_segmentation(logits_params[:, :, 0, :, :])        # [b, Seg, w, h]
 
+    # Segmentation Loss
+    loss = self.seg_loss_function(logits_seg, truth_seg, batch[2])
+
+    # Backward pass
     self.log('train_loss', loss, on_step=False, on_epoch=True)
-    self.log('learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+    self.log('Learning_Rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
-    if batch_idx < self.config["log_imgs"]:
+    #Print the max gradient
+    max_grad = 0
+    for name, param in self.model_kinetics.named_parameters():
+      if param.requires_grad:
+        if param.grad is not None:
+          max_grad = max(max_grad, param.grad.abs().max().item())
+    
+    self.log('max_grad_kinetics', max_grad, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
-      # Log Segmentation
-      output_seg = torch.argmax(logits_seg, dim=1)
-      
-      plt.figure()
-      plt.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
-      #First subplot
-      plt.subplot(1, 5, 1)
-      plt.imshow(truth_seg[0, 0, :, :].cpu().detach().numpy(), cmap="binary")
-      plt.axis("off")
-      plt.title("Truth")
-      plt.clim(0, len(self.config["segmentation_list"]))
-      #Second subplot
-      plt.subplot(1, 5, 2)
-      plt.imshow(output_seg[0, :, :].cpu().detach().numpy(), cmap="binary")
-      plt.axis("off")
-      plt.title("Output")
-      plt.clim(0, len(self.config["segmentation_list"]))
-      #Third subplot
-      plt.subplot(1, 5, 3)
-      plt.imshow(batch[2][0, 10, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("10t")
-      plt.clim(0, np.max(batch[2][0, 10, :, :].cpu().detach().numpy()))
-      #Fourth subplot
-      plt.subplot(1, 5, 4)
-      plt.imshow(batch[2][0, 20, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("20t")
-      plt.clim(0, np.max(batch[2][0, 20, :, :].cpu().detach().numpy()))
-      #Fifth subplot
-      plt.subplot(1, 5, 5)
-      plt.imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("30t")
-      plt.clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
-      wandb.log({"Segmentation (training batch)": wandb.Image(plt)})
+    max_grad = 0
+    for name, param in self.model_segmentation.named_parameters():
+      if param.requires_grad:
+        if param.grad is not None:
+          max_grad = max(max_grad, param.grad.abs().max().item())
+    
+    self.log('max_grad_segmentation', max_grad, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+
+    if ((np.random.rand() < 0.5) and (self.num_train_log_images < self.config["log_train_imgs"])):
+      # ------------------ Log Slice ------------------
+      kinetic_params = apply_final_activation(logits_params, self.config)
+      fig = log_slice(self.config, TAC_mes_batch, kinetic_params)
+      wandb.log({"Slice (training batch)": wandb.Image(fig)})
       plt.close()
       
+      #------------------ Log Segmentation ------------------
+      output_seg = logits_seg
+      fig, axes = plt.subplots(2, len(self.config["segmentation_list"]) + 2, figsize=((len(self.config["segmentation_list"]) + 2) * 2, len(self.config["segmentation_list"]) + 2))
+      fig.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
+      #First subplot
+      im1 = axes[0, 0].imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      im1.set_clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
+      #Second subplot
+      im2 = axes[1, 0].imshow(batch[2][0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("50t")
+      im2.set_clim(0, np.max(batch[2][0, 50, :, :].cpu().detach().numpy()))
+      #Rest of the subplots
+      for i in range(0, (len(self.config["segmentation_list"]) + 1), 1):
+        axes[0, i+1].imshow(output_seg[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[0, i+1].axis("off")
+        title = self.config["segmentation_list"][i - 1] if i > 0 else "Background"
+        axes[0, i+1].set_title(title)
+        axes[1, i+1].imshow(truth_seg[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[1, i+1].axis("off")
+        axes[1, i+1].set_title("Truth")
+      plt.tight_layout()
+      wandb.log({"Segmentation (training batch)": wandb.Image(fig)})
+      plt.close()
+
+      self.num_train_log_images += 1
 
     return {"loss": loss}
+
+  def on_train_epoch_end(self, outputs):
+    self.num_train_log_images = 0
+    return 
 
   def validation_step(self, batch, batch_idx):
     # batch = [patient, slice, TAC]
@@ -359,67 +410,73 @@ class SpaceTempUNetSeg2(pl.LightningModule):
     x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
     truth_seg = F.one_hot(batch[3].long(), num_classes= len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
+    # Kinetic network
     logits_params = self.forward_kinetics(x)        # [b, 4, 1, w, h]
-    kinetic_params = apply_final_activation(logits_params, self.config)
-    logits_seg = self.forward_segmentation(kinetic_params[:, :, 0, :, :])        # [b, Seg, 1, w, h]
-    
-    loss = self.dice_loss(logits_seg, truth_seg)
+    _, _, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)
+    if self.config["mask_loss"]:
+      _, _, logits_params = mask_data(TAC_mes_batch, TAC_pred_batch, logits_params, self.time_stamp, patch_size=self.patch_size)
 
+    # Segmentation network
+    logits_seg = self.forward_segmentation(logits_params[:, :, 0, :, :])        # [b, Seg, w, h]
+
+    # Segmentation Loss
+    loss = self.seg_loss_function(logits_seg, truth_seg, batch[2])
+
+    # Log the loss
     self.log('val_loss', loss, on_step=False, on_epoch=True)
 
     # Prepare data to log
-    if batch_idx < self.config["log_imgs"]:
-      # Log Segmentation
-      output_seg = torch.argmax(logits_seg, dim=1)
+    if ((np.random.rand() < 0.5) and (self.num_val_log_images < self.config["log_val_imgs"])):
+      # Log slices
+      kinetic_params = apply_final_activation(logits_params, self.config)
+      fig = log_slice(self.config, TAC_mes_batch, kinetic_params)
+      fig_slice = {"Slice (validation batch)": wandb.Image(fig)}
+      plt.close()
 
-      plt.figure()
-      plt.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
+      # ------------------ Log Segmentation ------------------
+      output_seg = logits_seg
+      fig, axes = plt.subplots(2, len(self.config["segmentation_list"]) + 2, figsize=((len(self.config["segmentation_list"]) + 2) * 2, len(self.config["segmentation_list"]) + 2))
+      fig.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
       #First subplot
-      plt.subplot(1, 5, 1)
-      plt.imshow(truth_seg[0, 0, :, :].cpu().detach().numpy(), cmap="binary")
-      plt.axis("off")
-      plt.title("Truth")
-      plt.clim(0, len(self.config["segmentation_list"]))
+      im1 = axes[0, 0].imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      im1.set_clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
       #Second subplot
-      plt.subplot(1, 5, 2)
-      plt.imshow(output_seg[0, :, :].cpu().detach().numpy(), cmap="binary")
-      plt.axis("off")
-      plt.title("Output")
-      plt.clim(0, len(self.config["segmentation_list"]))
-      #Third subplot
-      plt.subplot(1, 5, 3)
-      plt.imshow(batch[2][0, 10, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("10t")
-      plt.clim(0, np.max(batch[2][0, 10, :, :].cpu().detach().numpy()))
-      #Fourth subplot
-      plt.subplot(1, 5, 4)
-      plt.imshow(batch[2][0, 20, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("20t")
-      plt.clim(0, np.max(batch[2][0, 20, :, :].cpu().detach().numpy()))
-      #Fifth subplot
-      plt.subplot(1, 5, 5)
-      plt.imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("30t")
-      plt.clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
+      im2 = axes[1, 0].imshow(batch[2][0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("50t")
+      im2.set_clim(0, np.max(batch[2][0, 50, :, :].cpu().detach().numpy()))
+      #Rest of the subplots
+      for i in range(0, (len(self.config["segmentation_list"]) + 1), 1):
+        axes[0, i+1].imshow(output_seg[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[0, i+1].axis("off")
+        title = self.config["segmentation_list"][i - 1] if i > 0 else "Background"
+        axes[0, i+1].set_title(title)
+        axes[1, i+1].imshow(truth_seg[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[1, i+1].axis("off")
+        axes[1, i+1].set_title("Truth")
+      plt.tight_layout()
       fig_seg = {"Segmentation (validation batch)": wandb.Image(plt)}
       plt.close()
 
+      self.num_val_log_images += 1
 
-      self.validation_step_outputs.append({"fig_seg": fig_seg})
-      return {'val_loss': loss, "fig_seg": fig_seg}
+      self.validation_step_outputs.append({"fig_seg": fig_seg, "fig_slice": fig_slice})
+      return {'val_loss': loss, "fig_seg": fig_seg, "fig_slice": fig_slice}
     else:
-      self.validation_step_outputs.append({"val_loss": loss, "fig_seg": None})
-      return {'val_loss': loss, "fig_seg": None}
+      self.validation_step_outputs.append({"val_loss": loss, "fig_seg": None, "fig_slice": None})
+      return {'val_loss': loss, "fig_seg": None, "fig_slice": None}
   
   def on_validation_epoch_end(self):
     for o in self.validation_step_outputs:
       if not o["fig_seg"] is None:
         wandb.log(o["fig_seg"])
+      if not o["fig_slice"] is None:
+        wandb.log(o["fig_slice"])
     
     self.validation_step_outputs.clear()
+    self.num_val_log_images = 0
     return
   
   def test_step(self, batch, batch_idx):

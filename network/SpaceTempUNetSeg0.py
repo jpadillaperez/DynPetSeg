@@ -39,7 +39,7 @@ class SpaceTempUNetSeg0(pl.LightningModule):
       self.model = UNet(in_channels=1, out_channels=self.config["output_size"], config=self.config)
 
     self.loss_function = DiceLoss(squared_pred=True, reduction="mean", softmax=True, include_background=True)
-    #self.softmax = torch.nn.Softmax(dim=1)
+    self.softmax = torch.nn.Softmax(dim=1)
     self.validation_step_outputs = []
 
   def setup(self, stage): 
@@ -83,10 +83,6 @@ class SpaceTempUNetSeg0(pl.LightningModule):
     x = self.model(x)
     return x
   
-  #def loss_function(self, pred, real):        
-  #  loss = similaritymeasures_torch.dice(pred, real)
-  #  return loss
-  
   def train_dataloader(self):
       #num_cpus = multiprocessing.cpu_count()
       num_cpus = 0
@@ -102,10 +98,8 @@ class SpaceTempUNetSeg0(pl.LightningModule):
   def test_dataloader(self):
       #num_cpus = multiprocessing.cpu_count()
       num_cpus = 0
-      # If batch_size!=1 test_set and test_epoch_end may not work as expected
       test_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=1, shuffle=False, num_workers=num_cpus)
       return test_loader
-
 
   def training_step(self, batch, batch_idx):
     # batch = [patient, slice, TAC, mask]
@@ -114,56 +108,39 @@ class SpaceTempUNetSeg0(pl.LightningModule):
     truth = F.one_hot(batch[3].long(), num_classes=len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
     # Forward pass
-    output = self.forward(x)        # [b, SEG, 1, w, h]
-    output = output.squeeze(2)  # [b, SEG, w, h]
+    logits = self.forward(x)        # [b, SEG, 1, w, h]
+    logits = logits[:, :, 0, :, :]  # [b, SEG, w, h]
 
     # Compute the loss with the segmentation mask
-    #output = self.softmax(output)
-    loss = self.loss_function(output, truth)
-
-    output = torch.argmax(output, dim=1)
-    truth = torch.argmax(truth, dim=1)
-
-    # Gradient clipping
-    if (self.config["clip_grad_norm"] > 0):
-      torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config["clip_grad_norm"])
+    loss = self.loss_function(logits, truth)
 
     # Prepare data to log
-    if batch_idx % self.config["log_img_freq"] == 0:   
-      # Log Segmentation
-      plt.figure()
-      plt.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
+    if batch_idx < self.config["log_imgs"]:
+      #------------------ Log Segmentation ------------------
+      output = logits
+      fig, axes = plt.subplots(2, len(self.config["segmentation_list"]) + 2, figsize=((len(self.config["segmentation_list"]) + 2) * 2, len(self.config["segmentation_list"]) + 2))
+      fig.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
       #First subplot
-      plt.subplot(1, 5, 1)
-      plt.imshow(truth[0, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("Truth")
-      plt.clim(0, len(self.config["segmentation_list"]))
+      im1 = axes[0, 0].imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      im1.set_clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
       #Second subplot
-      plt.subplot(1, 5, 2)
-      plt.imshow(output[0, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("Output")
-      plt.clim(0, len(self.config["segmentation_list"]))
-      #Third subplot
-      plt.subplot(1, 5, 3)
-      plt.imshow(batch[2][0, 10, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("10t")
-      plt.clim(0, np.max(batch[2][0, 10, :, :].cpu().detach().numpy()))
-      #Fourth subplot
-      plt.subplot(1, 5, 4)
-      plt.imshow(batch[2][0, 20, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("20t")
-      plt.clim(0, np.max(batch[2][0, 20, :, :].cpu().detach().numpy()))
-      #Fifth subplot
-      plt.subplot(1, 5, 5)
-      plt.imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("30t")
-      plt.clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
-      wandb.log({"Segmentation (training batch)": wandb.Image(plt)})
+      im2 = axes[1, 0].imshow(batch[2][0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("50t")
+      im2.set_clim(0, np.max(batch[2][0, 50, :, :].cpu().detach().numpy()))
+      #Rest of the subplots
+      for i in range(0, (len(self.config["segmentation_list"]) + 1), 1):
+        axes[0, i+1].imshow(output[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[0, i+1].axis("off")
+        title = self.config["segmentation_list"][i - 1] if i > 0 else "Background"
+        axes[0, i+1].set_title(title)
+        axes[1, i+1].imshow(truth[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[1, i+1].axis("off")
+        axes[1, i+1].set_title("Truth")
+      plt.tight_layout()
+      wandb.log({"Segmentation (training batch)": wandb.Image(fig)})
       plt.close()
 
     self.log('train_loss', loss.item(), on_step=False, on_epoch=True)
@@ -172,60 +149,46 @@ class SpaceTempUNetSeg0(pl.LightningModule):
     return {"loss": loss}
 
   def validation_step(self, batch, batch_idx):
-
     # batch = [patient, slice, TAC, mask]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1) # adding channel dimension --> [b, 1, 62, w, h]
     x = F.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
     truth = F.one_hot(batch[3].long(), num_classes=len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
-    output = self.forward(x)        # [b, SEG, 1, w, h]
-    output = output.squeeze(2)
+    logits = self.forward(x)        # [b, SEG, 1, w, h]
+    logits = logits[:, :, 0, :, :]  # [b, SEG, w, h]
 
     # Compute the loss with the segmentation mask
-    #output = self.softmax(output)
-    loss = self.loss_function(output, truth)
-    
-    output = torch.argmax(output, dim=1).float()
-    truth = torch.argmax(truth, dim=1).float()
-
+    loss = self.loss_function(logits, truth)
     self.log('val_loss', loss.item(), on_step=False, on_epoch=True)
 
     # Prepare data to log
-    if batch_idx % self.config["log_img_freq"] == 0:
-      # Log Segmentation
-      fig = plt.figure()
-      plt.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
+    if batch_idx < self.config["log_imgs"]:
+
+      # ------------------ Log Segmentation ------------------
+      output = logits
+      fig, axes = plt.subplots(2, len(self.config["segmentation_list"]) + 2, figsize=((len(self.config["segmentation_list"]) + 2) * 2, len(self.config["segmentation_list"]) + 2))
+      fig.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
       #First subplot
-      plt.subplot(1, 5, 1)
-      plt.imshow(truth[0, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("Truth")
-      plt.clim(0, len(self.config["segmentation_list"]))
+      im1 = axes[0, 0].imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      im1.set_clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
       #Second subplot
-      plt.subplot(1, 5, 2)
-      plt.imshow(output[0, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("Output")
-      plt.clim(0, len(self.config["segmentation_list"]))
-      # Third subplot
-      plt.subplot(1, 5, 3)
-      plt.imshow(batch[2][0, 10, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("10t")
-      plt.clim(0, np.max(batch[2][0, 10, :, :].cpu().detach().numpy()))
-      # Fourth subplot
-      plt.subplot(1, 5, 4)
-      plt.imshow(batch[2][0, 20, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("20t")
-      plt.clim(0, np.max(batch[2][0, 20, :, :].cpu().detach().numpy()))
-      # Fifth subplot
-      plt.subplot(1, 5, 5)
-      plt.imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("30t")
-      plt.clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
-      fig_seg = {"Segmentation (validation batch)": wandb.Image(fig)}
+      im2 = axes[1, 0].imshow(batch[2][0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("50t")
+      im2.set_clim(0, np.max(batch[2][0, 50, :, :].cpu().detach().numpy()))
+      #Rest of the subplots
+      for i in range(0, (len(self.config["segmentation_list"]) + 1), 1):
+        axes[0, i+1].imshow(output[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[0, i+1].axis("off")
+        title = self.config["segmentation_list"][i - 1] if i > 0 else "Background"
+        axes[0, i+1].set_title(title)
+        axes[1, i+1].imshow(truth[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[1, i+1].axis("off")
+        axes[1, i+1].set_title("Truth")
+      plt.tight_layout()
+      fig_seg = {"Segmentation (validation batch)": wandb.Image(plt)}
       plt.close()
 
       self.validation_step_outputs.append({"fig_seg": fig_seg})
@@ -245,12 +208,15 @@ class SpaceTempUNetSeg0(pl.LightningModule):
     # batch = [patient, slice, TAC, mask]
     patients_in_batch = batch[0]
     slices_in_batch = batch[1]
-    mask = batch[3]
+    #mask = batch[3]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1) # adding channel dimension --> [b, 1, 62, w, h]
     x = F.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
+    truth = F.one_hot(batch[3].long(), num_classes=len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
-    logits_params = self.forward(x)        # [b, 4, 1, w, h]
-
+    logits = self.forward(x)        # [b, 4, 1, w, h]
+    logits = logits[:, :, 0, :, :]  # [b, 4, w, h]
+    output = self.softmax(logits)
+    
     # Compute the loss with the segmentation mask
     loss = self.loss_function(logits_params, mask)
 

@@ -34,7 +34,8 @@ class SpaceTempUNetSeg1(pl.LightningModule):
     # Read configuration file and add new info if needed
     self.config = config
     self.config["output_size"] = 4 + len(self.config["segmentation_list"]) + 1   # This is the number of output channels (1 per kinetic parameter + 1 per Organ)
-    self.config["mask_loss"] = True
+    #self.config["mask_loss"] = True
+    self.config["mask_loss"] = False
     self.config["multi_clamp_params"] = {"k1": (0.01, 2), "k2": (0.01, 3), "k3": (0.01, 1), "Vb": (0, 1)}
     self.config["use_pearson_metric"] = False     # Setting it to True may slow down the training 
 
@@ -43,11 +44,13 @@ class SpaceTempUNetSeg1(pl.LightningModule):
     
     print("\nConfiguration: ", self.config)
 
+    # Define the model
     if self.config["use_spatio_temporal_unet"]:
       self.model = UNet_ST(in_channels=1, out_channels=self.config["output_size"], config=self.config)
     else:
       self.model = UNet(in_channels=1, out_channels=self.config["output_size"], config=self.config)
 
+    # Initialize the weights
     if self.config["weight_init"] == "kaiming":
       self.model.apply(weights_init_kaiming)
     elif self.config["weight_init"] == "xavier":
@@ -59,6 +62,9 @@ class SpaceTempUNetSeg1(pl.LightningModule):
     self.frame_duration = np.array(frame_duration) / 60  # from s to min
 
     self.validation_step_outputs = []
+
+    self.num_val_log_images = 0
+    self.num_train_log_images = 0
 
   def setup(self, stage): 
     self.stage = stage
@@ -101,12 +107,30 @@ class SpaceTempUNetSeg1(pl.LightningModule):
     return x
   
   def loss_function(self, pred_TAC, real_TAC): 
-    #TODO: Change loss function for:
-        #First 4 channels: MSE
-        #Rest of the channels: Dice
     loss = similaritymeasures_torch.mse(pred_TAC.to(self.config["device"]).double(), real_TAC.to(self.config["device"]).double())
     return loss
-  
+
+  def seg_loss_function(self, pred_seg, real_seg, real_TAC):
+    if self.config["mask_loss"]:
+      time_stamp_batch = self.time_stamp_batch[:, 0, :].permute((1, 0))
+      b, t, h, w = real_TAC.shape                         # [b, 62, w, h]
+      real_TAC = torch.reshape(real_TAC, [b, t, h*w])     # [b, 62, w*h]
+      real_seg = torch.reshape(real_seg, [b, len(self.config["segmentation_list"]) + 1, h*w])  # [b, Seg, w*h]
+      pred_seg = torch.reshape(pred_seg, [b, len(self.config["segmentation_list"]) + 1, h*w])  # [b, Seg, w*h]
+      seg_loss = 0
+      for i in range(b):
+        current_TAC_batch = real_TAC[i, :, :]
+        AUC = torch.trapezoid(current_TAC_batch, time_stamp_batch, dim=0)
+        maskk = AUC > 10
+        maskk = maskk * 1
+        mask = maskk.repeat(len(self.config["segmentation_list"]) + 1, 1)
+        pred_seg = torch.multiply(pred_seg, mask)
+        real_seg = torch.multiply(real_seg, mask)
+        seg_loss += self.dice_loss(pred_seg, real_seg)
+      return seg_loss/b
+    else:
+      return self.dice_loss(pred_seg, real_seg)
+
   
   def train_dataloader(self):
       #num_cpus = multiprocessing.cpu_count()
@@ -291,21 +315,26 @@ class SpaceTempUNetSeg1(pl.LightningModule):
     # batch = [patient, slice, TAC]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1)  # adding channel dimension --> [b, 1, 62, w, h]
     x = F.pad(TAC_mes_batch, (0,0,0,0,1,1))   # padding --> [b, 1, 64, w, h]
-    
     truth_seg = F.one_hot(batch[3].long(), num_classes= len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
+    # Forward pass
     logits_params = self.forward(x)        # [b, 4 + segs, 1, w, h]
     
-    #Kinetic Loss
+    # Kinetic Loss
     loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params[:, :4, :, :, :])
 
-    #Segmentation Loss
-    seg_loss = self.dice_loss(logits_params[:, 4:, 0, :, :], truth_seg)
+    # Segmentation Loss
+    seg_loss = self.seg_loss_function(logits_params[:, 4:, 0, :, :], truth_seg, batch[2])
 
-    loss = loss_dict["loss"].item() + seg_loss
+    # Total loss
+    #loss = loss_dict["loss"].item() + seg_loss
+    loss = seg_loss
 
+    # Log the metrics
+    self.log('Kinetic_loss', loss_dict["loss"].item(), on_step=False, on_epoch=True)
+    self.log('Segmentation_loss', seg_loss, on_step=False, on_epoch=True)
     self.log('train_loss', loss, on_step=False, on_epoch=True)
-    self.log('learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+    self.log('Learning_Rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
     #Print the max gradient
     max_grad = 0
@@ -316,89 +345,80 @@ class SpaceTempUNetSeg1(pl.LightningModule):
     
     self.log('max_grad', max_grad, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
-    if (self.config["clip_grad_norm"] > 0):
-      torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config["clip_grad_norm"])
-
-    if batch_idx < self.config["log_imgs"]:
-
-      # Log Kinetic Images
+    if ((np.random.rand() < 0.5) and (self.num_train_log_images < self.config["log_train_imgs"])):
       if self.config["mask_loss"]:
         TAC_mes_batch, TAC_pred_batch, logits_params[:, :4, :, :, :] = mask_data(TAC_mes_batch, TAC_pred_batch, logits_params[:, :4, :, :, :], self.time_stamp, patch_size=self.patch_size)
       
-      # First log kinetic curves
+      # ------------------ Log TAC ------------------
       fig = log_curves(TAC_mes_batch[:, :, 0:62, :, :].cpu().detach().numpy(), TAC_pred_batch.cpu().detach().numpy(), self.time_stamp.to("cpu"), self.time_stamp.to("cpu"), self.current_epoch)
       wandb.log({"TAC (training batch)": wandb.Image(fig)})
       plt.close()
-
-      # Second Log kinetic images
+      # ------------------ Log Slice ------------------
       kinetic_params = apply_final_activation(logits_params[:, :4, :, :, :], self.config)
       fig = log_slice(self.config, TAC_mes_batch, kinetic_params)
       wandb.log({"Slice (training batch)": wandb.Image(fig)})
       plt.close()
 
-      # Log Segmentation
-      output_seg = torch.argmax(logits_params[:, :4, 0, :, :], dim=1)
-      
-      plt.figure()
-      plt.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
+      #------------------ Log Segmentation ------------------
+      output_seg = logits_params[:, 4:, 0, :, :]
+      fig, axes = plt.subplots(2, len(self.config["segmentation_list"]) + 2, figsize=((len(self.config["segmentation_list"]) + 2) * 2, len(self.config["segmentation_list"]) + 2))
+      fig.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
       #First subplot
-      plt.subplot(1, 5, 1)
-      plt.imshow(truth_seg[0, 0, :, :].cpu().detach().numpy(), cmap="binary")
-      plt.axis("off")
-      plt.title("Truth")
-      plt.clim(0, len(self.config["segmentation_list"]))
+      im1 = axes[0, 0].imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      im1.set_clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
       #Second subplot
-      plt.subplot(1, 5, 2)
-      plt.imshow(output_seg[0, :, :].cpu().detach().numpy(), cmap="binary")
-      plt.axis("off")
-      plt.title("Output")
-      plt.clim(0, len(self.config["segmentation_list"]))
-      #Third subplot
-      plt.subplot(1, 5, 3)
-      plt.imshow(batch[2][0, 10, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("10t")
-      plt.clim(0, np.max(batch[2][0, 10, :, :].cpu().detach().numpy()))
-      #Fourth subplot
-      plt.subplot(1, 5, 4)
-      plt.imshow(batch[2][0, 20, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("20t")
-      plt.clim(0, np.max(batch[2][0, 20, :, :].cpu().detach().numpy()))
-      #Fifth subplot
-      plt.subplot(1, 5, 5)
-      plt.imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("30t")
-      plt.clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
-      wandb.log({"Segmentation (training batch)": wandb.Image(plt)})
+      im2 = axes[1, 0].imshow(batch[2][0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("50t")
+      im2.set_clim(0, np.max(batch[2][0, 50, :, :].cpu().detach().numpy()))
+      #Rest of the subplots
+      for i in range(0, (len(self.config["segmentation_list"]) + 1), 1):
+        axes[0, i+1].imshow(output_seg[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[0, i+1].axis("off")
+        title = self.config["segmentation_list"][i - 1] if i > 0 else "Background"
+        axes[0, i+1].set_title(title)
+        axes[1, i+1].imshow(truth_seg[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[1, i+1].axis("off")
+        axes[1, i+1].set_title("Truth")
+      plt.tight_layout()
+      wandb.log({"Segmentation (training batch)": wandb.Image(fig)})
       plt.close()
-      
+
+      self.num_train_log_images += 1
 
     return {"loss": loss}
+
+  def on_train_epoch_end(self):
+    self.num_train_log_images = 0
+    return
+
 
   def validation_step(self, batch, batch_idx):
     # batch = [patient, slice, TAC]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1) # adding channel dimension --> [b, 1, 62, w, h]
     x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
-
     truth_seg = F.one_hot(batch[3].long(), num_classes= len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
-    logits_params = self.forward(x)        # [b, 4, 1, w, h]
+    # Forward pass
+    logits_params = self.forward(x)        # [b, 4 + segs, 1, w, h]
 
-    #Kinetic Loss
+    # Kinetic Loss
     loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params[:, :4, :, :, :])
 
-    #Segmentation Loss
-    seg_loss = self.dice_loss(logits_params[:, 4:, 0, :, :], truth_seg)
+    # Segmentation Loss
+    seg_loss = self.seg_loss_function(logits_params[:, 4:, 0, :, :], truth_seg, batch[2])
 
+    # Total loss
     loss = loss_dict["loss"].item() + seg_loss
 
+    # Log the metrics
     self.log('val_loss', loss, on_step=False, on_epoch=True)
     self.log_dict(metric_dict, on_step=False, on_epoch=True)
 
     # Prepare data to log
-    if batch_idx < self.config["log_imgs"]:
+    if ((np.random.rand() < 0.5) and (self.num_val_log_images < self.config["log_val_imgs"])):
       if self.config["mask_loss"]:
         TAC_mes_batch, TAC_pred_batch, logits_params[:, :4, :, :, :] = mask_data(TAC_mes_batch, TAC_pred_batch, logits_params[:, :4, :, :, :], self.time_stamp, patch_size=self.patch_size)
 
@@ -414,43 +434,33 @@ class SpaceTempUNetSeg1(pl.LightningModule):
       plt.close()
 
       # Log Segmentation
-      output_seg = torch.argmax(logits_params[:, :4, 0, :, :], dim=1)
-
-      plt.figure()
-      plt.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
+      output_seg = logits_params[:, 4:, 0, :, :]
+      fig, axes = plt.subplots(2, len(self.config["segmentation_list"]) + 2, figsize=((len(self.config["segmentation_list"]) + 2) * 2, len(self.config["segmentation_list"]) + 2))
+      fig.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
       #First subplot
-      plt.subplot(1, 5, 1)
-      plt.imshow(truth_seg[0, 0, :, :].cpu().detach().numpy(), cmap="binary")
-      plt.axis("off")
-      plt.title("Truth")
-      plt.clim(0, len(self.config["segmentation_list"]))
+      im1 = axes[0, 0].imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      im1.set_clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
       #Second subplot
-      plt.subplot(1, 5, 2)
-      plt.imshow(output_seg[0, :, :].cpu().detach().numpy(), cmap="binary")
-      plt.axis("off")
-      plt.title("Output")
-      plt.clim(0, len(self.config["segmentation_list"]))
-      #Third subplot
-      plt.subplot(1, 5, 3)
-      plt.imshow(batch[2][0, 10, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("10t")
-      plt.clim(0, np.max(batch[2][0, 10, :, :].cpu().detach().numpy()))
-      #Fourth subplot
-      plt.subplot(1, 5, 4)
-      plt.imshow(batch[2][0, 20, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("20t")
-      plt.clim(0, np.max(batch[2][0, 20, :, :].cpu().detach().numpy()))
-      #Fifth subplot
-      plt.subplot(1, 5, 5)
-      plt.imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
-      plt.axis("off")
-      plt.title("30t")
-      plt.clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
+      im2 = axes[1, 0].imshow(batch[2][0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("50t")
+      im2.set_clim(0, np.max(batch[2][0, 50, :, :].cpu().detach().numpy()))
+      #Rest of the subplots
+      for i in range(0, (len(self.config["segmentation_list"]) + 1), 1):
+        axes[0, i+1].imshow(output_seg[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[0, i+1].axis("off")
+        title = self.config["segmentation_list"][i - 1] if i > 0 else "Background"
+        axes[0, i+1].set_title(title)
+        axes[1, i+1].imshow(truth_seg[0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[1, i+1].axis("off")
+        axes[1, i+1].set_title("Truth")
+      plt.tight_layout()
       fig_seg = {"Segmentation (validation batch)": wandb.Image(plt)}
       plt.close()
 
+      self.num_val_log_images += 1
 
       self.validation_step_outputs.append({"fig_slice": fig_slice, "fig_curve": fig_curve})
       return {'val_loss': loss, "fig_slice": fig_slice, "fig_curve": fig_curve}
@@ -464,6 +474,7 @@ class SpaceTempUNetSeg1(pl.LightningModule):
       if not o["fig_curve"] is None:  wandb.log(o["fig_curve"])
     
     self.validation_step_outputs.clear()
+    self.num_val_log_images = 0
     return
   
   def test_step(self, batch, batch_idx):
@@ -589,9 +600,16 @@ class SpaceTempUNetSeg1(pl.LightningModule):
             'frequency': 1,
         }
 
+    elif self.config["lr_scheduler"] == "StepLR":
+        scheduler = {
+            'scheduler': torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.config['step_size'], gamma=self.config['gamma'], last_epoch=-1),
+            'interval': 'epoch',
+            'frequency': 1,
+        }
+
     elif self.config["lr_scheduler"] == "ReduceLROnPlateau":
         scheduler = {
-            'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=self.config['reduce_factor'], patience=self.config['reduce_patience'], verbose=True),
+            'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=self.config['reduce_factor'], patience=self.config['reduce_patience'], threshold=self.config['reduce_threshold'], threshold_mode='rel'),
             'monitor': self.config['reduce_monitor'],  # Specify the metric you want to monitor
             'interval': 'epoch',
             'frequency': 1 if self.config['reduce_monitor'] == "val_loss" else self.config['val_freq'],

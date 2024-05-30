@@ -84,8 +84,6 @@ batch_size:
 
 lr_scheduler:
   value: "ReduceLROnPlateau" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau
-
-# Parameters specific to ReduceLROnPlateau
 reduce_monitor:
   value: "train_loss"
 reduce_factor:
@@ -104,8 +102,10 @@ weight_decay:
   value: 0
 
 # Other training parameters
-log_imgs:
+log_train_imgs:
   value: 5
+log_val_imgs:
+  value: 10
 val_freq:
   value: 5
   

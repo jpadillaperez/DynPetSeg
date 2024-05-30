@@ -19,9 +19,6 @@ activation:
 
 bounding_box:
   value: False
-  
-clip_grad_norm: #Gradient clipping (0 to disable)
-  value: 0 #1000
 
 weight_init:
   value: None # Options: kaiming, xavier, None
@@ -35,10 +32,10 @@ patient_list:
           #DONE: Use debugging training list for sweep
           #"train": ["01"],
           #"validation": ["01"],
-          #"train": ["01", "07", "06", "10", "15", "19", "21", "23", "27", "29"],
-          "train": ["01", "07", "06"],
-          #"validation": ["14", "17", "18"], #DONE: remove 01 from validation because there is not batch = 5 anymore
-          "validation": ["18", "17"],
+          "train": ["01", "07", "06", "10", "15", "19", "21", "23", "27", "29"],
+          #"train": ["01", "07", "06"],
+          "validation": ["14", "17", "18"], #DONE: remove 01 from validation because there is not batch = 5 anymore
+          #"validation": ["18", "17"],
           #"validation": ["14"],
           "test": ["28", "08", "09", "20", "24", "25", "26", "03"]
         }
@@ -72,18 +69,23 @@ epochs:
   
 batch_norm: 
   desc: Use of batch normalization
-  value: True
+  value: False
 
 learning_rate:
-  value: 0.0001 
+  value: 0.00003
 
 batch_size: 
   value: 1
 
+#lr_scheduler:
+#  value: "StepLR" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau
+#step_size:
+#  value: 150
+#gamma:
+#  value: 0.5
+
 lr_scheduler:
   value: "ReduceLROnPlateau" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau
-
-# Parameters specific to ReduceLROnPlateau
 reduce_monitor:
   value: "train_loss"
 reduce_factor:
@@ -92,6 +94,7 @@ reduce_patience:
   value: 5
 reduce_threshold:
   value: 0.001
+
 
 # Warmup Epochs
 warmup_epochs:
@@ -102,8 +105,10 @@ weight_decay:
   value: 0
 
 # Other training parameters
-log_imgs:
+log_train_imgs:
   value: 5
+log_val_imgs:
+  value: 10
 val_freq:
   value: 5
   

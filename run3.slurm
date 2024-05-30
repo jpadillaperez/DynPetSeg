@@ -1,6 +1,6 @@
 #!/bin/sh
 
-#SBATCH --job-name=DynPETSeg-A2  # Job name
+#SBATCH --job-name=DynPETSeg-A3  # Job name
 #SBATCH --output=output/logs/DynPETSeg-%A.out  # Standard output of the script (Can be absolute or relative path). %A adds the job id to the file name so you can launch the same script multiple times and get different logging files
 #SBATCH --error=output/logs/DynPETSeg-%A.err  # Standard error of the script
 #SBATCH --time=03-00:00:00  # Limit on the total run time (format: days-hours:minutes:seconds)
@@ -35,6 +35,6 @@ conda activate DynPet
 KINETIC_CKPT=/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/glorious-flower-706/epoch=99-step=416000.ckpt
 
 # Run the script
-python -u ./main.py --experiment seg2 --modality train --kinetic_ckpt $KINETIC_CKPT
+python -u ./main.py --experiment seg3 --modality train --kinetic_ckpt $KINETIC_CKPT
 
 conda deactivate

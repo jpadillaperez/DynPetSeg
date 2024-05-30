@@ -6,11 +6,12 @@ import pandas as pd
 import multiprocessing
 import pytorch_lightning as pl
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 from scipy.stats import pearsonr
+from monai.losses import DiceLoss
 
 from dataset import DynPETDataset
-from network.unet_blocks import UNet
-from network.unet_blocks_ST import UNet_ST
+from network.unet_blocks_ST_2Heads import UNet_ST_2Heads
 from utils.utils_kinetic import PET_2TC_KM_batch
 from utils.utils_logging import log_slice, log_curves, mask_data
 import utils.similaritymeasures_torch as similaritymeasures_torch
@@ -18,7 +19,7 @@ from utils.utils_main import make_save_folder_struct, reconstruct_prediction, ap
 from utils.utils_torch import torch_interp_Nd, WarmupScheduler, weights_init_kaiming, weights_init_xavier
 #----------------------------------------------
 
-class SpaceTempUNet(pl.LightningModule):
+class SpaceTempUNetSeg3(pl.LightningModule):
   def __init__(self, config):
     # Enforce determinism
     seed = 0
@@ -27,34 +28,38 @@ class SpaceTempUNet(pl.LightningModule):
     np.random.seed(seed)
     pl.seed_everything(seed)
     
-    super(SpaceTempUNet, self).__init__()
+    super(SpaceTempUNetSeg3, self).__init__()
 
     # Read configuration file and add new info if needed
     self.config = config
-    self.config["output_size"] = 4    # This is the number of output channels (1 per kinetic parameter)
+    self.config["output_size"] = 4  # This is the number of output channels in kinetic network (1 per kinetic parameter)
+    self.config["output_size_seg"] = len(self.config["segmentation_list"]) + 1  # This is the number of output channels after second network (1 per segmentation class + background)
     self.config["mask_loss"] = True
     self.config["multi_clamp_params"] = {"k1": (0.01, 2), "k2": (0.01, 3), "k3": (0.01, 1), "Vb": (0, 1)}
     self.config["use_pearson_metric"] = False     # Setting it to True may slow down the training 
 
-    # The paper was developed with config["patch_size"] = 112. However in this was some regions of the body are outsie the FOV (for example the arms of part of the belly or the back).
-    # While config["patch_size"] = 112 doesn't reduce the performance of the training, using a larger patch_size will allow to infere complete 3D volumes without missing parts. 
-    
     print("\nConfiguration: ", self.config)
 
-    if self.config["use_spatio_temporal_unet"]:
-      self.model = UNet_ST(in_channels=1, out_channels=self.config["output_size"], config=self.config)
-    else:
-      self.model = UNet(in_channels=1, out_channels=self.config["output_size"], config=self.config)
-
+    # Network 2 Decoder Heads
+    self.model = UNet_ST_2Heads(in_channels=1, out_channels_kin=self.config["output_size"], out_channels_seg=self.config["output_size_seg"], config=self.config)
+    
+    # Initialize weights
     if self.config["weight_init"] == "kaiming":
       self.model.apply(weights_init_kaiming)
     elif self.config["weight_init"] == "xavier":
       self.model.apply(weights_init_xavier)
 
+    # Loss function
+    self.dice_loss = DiceLoss(reduction="mean", softmax=True, include_background=True)
+    self.softmax = torch.nn.Softmax(dim=1) #Just for the test_step
+
     frame_duration = [10, 10, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 10, 10, 10, 10, 30, 30, 30, 30, 30, 30, 30, 30, 60, 60, 60, 60, 120, 120, 120, 120, 120, 300, 300, 300, 300, 300, 300, 300, 300, 300]
     self.frame_duration = np.array(frame_duration) / 60  # from s to min
 
     self.validation_step_outputs = []
+
+    self.num_val_log_images = 0
+    self.num_train_log_images = 0
 
   def setup(self, stage): 
     self.stage = stage
@@ -91,15 +96,15 @@ class SpaceTempUNet(pl.LightningModule):
       self.t_batch = self.t.repeat(self.patch_size*self.patch_size, 1, 1)
       self.time_stamp_batch = self.time_stamp.repeat(self.patch_size*self.patch_size, 1, 1)
 
-    
   def forward(self, x):
-    x = self.model(x)
-    return x
+    return self.model(x)
   
-  def loss_function(self, pred_TAC, real_TAC):        
-    loss = similaritymeasures_torch.mse(pred_TAC.to(self.config["device"]).double(), real_TAC.to(self.config["device"]).double())
-    return loss
-  
+  def kin_loss_function(self, pred_TAC, real_TAC):
+    return similaritymeasures_torch.mse(pred_TAC.to(self.config["device"]).double(), real_TAC.to(self.config["device"]).double())
+
+  def seg_loss_function(self, pred_seg, real_seg, real_TAC):
+    return self.dice_loss(pred_seg, real_seg)
+
   def train_dataloader(self):
       #num_cpus = multiprocessing.cpu_count()
       num_cpus = 0
@@ -128,10 +133,10 @@ class SpaceTempUNet(pl.LightningModule):
       TAC_pred_batch = torch.zeros_like(TAC_batch)
 
       kinetic_params = apply_final_activation(logits, self.config)          #  [b, 4, 1, 112, 112]
-      kinetic_params = torch.reshape(kinetic_params, [b, self.config["output_size"], h*w, 1])   # [b, 4, w*h, 1]
+      kinetic_params = torch.reshape(kinetic_params, [b, 4, h*w, 1])   # [b, 4, w*h, 1]
       kinetic_params = kinetic_params.repeat(1, 1, 1, len(self.t))  #  [b, 4, w*h, 600]
 
-      logits = torch.reshape(logits, [b, self.config["output_size"], h*w, 1])   # predicted params [b, 4, 1, 112, 112] --> [b, 4, w*h, 1]
+      logits = torch.reshape(logits, [b, 4, h*w, 1])   # predicted params [b, 4, 1, 112, 112] --> [b, 4, w*h, 1]
       
       loss = 0
 
@@ -171,7 +176,7 @@ class SpaceTempUNet(pl.LightningModule):
         
         TAC_pred_batch[i, :, :] = current_TAC_pred_batch
         if return_value is None or return_value == "Loss":  
-          loss += self.loss_function(current_TAC_pred_batch, current_TAC_batch)
+          loss += self.kin_loss_function(current_TAC_pred_batch, current_TAC_batch)
 
         if return_value is None or return_value == "Metric":  
           if self.config["mask_loss"]:
@@ -282,81 +287,220 @@ class SpaceTempUNet(pl.LightningModule):
   def training_step(self, batch, batch_idx):
     # batch = [patient, slice, TAC]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1)  # adding channel dimension --> [b, 1, 62, w, h]
-    x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1))   # padding --> [b, 1, 64, w, h]
+    x = F.pad(TAC_mes_batch, (0,0,0,0,1,1))   # padding --> [b, 1, 64, w, h]
+    truth_seg = F.one_hot(batch[3].long(), num_classes= len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
-    logits_params = self.forward(x)        # [b, 4, 1, w, h]
-    
-    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)
-    
-    self.log('train_loss', loss_dict["loss"].item(), on_step=False, on_epoch=True)
-    self.log('learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=False, on_epoch=True, prog_bar=True, logger=True)
-
-    #Print the max gradient
-    max_grad = 0
-    for name, param in self.model.named_parameters():
-      if param.requires_grad:
-        if param.grad is not None:
-          max_grad = max(max_grad, param.grad.abs().max().item())
-    
-    self.log('max_grad', max_grad, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-
-    if batch_idx % self.config["log_img_freq"] == 0:
-
-      if self.config["mask_loss"]:
-        TAC_mes_batch, TAC_pred_batch, logits_params = mask_data(TAC_mes_batch, TAC_pred_batch, logits_params, self.time_stamp, patch_size=self.patch_size)
-                 
-      fig = log_curves(TAC_mes_batch[:, :, 0:62, :, :].cpu().detach().numpy(), TAC_pred_batch.cpu().detach().numpy(), self.time_stamp.to("cpu"), self.time_stamp.to("cpu"), self.current_epoch)
-      wandb.log({"TAC (training batch)": wandb.Image(fig)})
+    ###------------------ Log the input and target ------------------###
+    if self.current_epoch == 0 and (batch_idx == 0 or batch_idx == 1):
+      fig, axes = plt.subplots(2, len(self.config["segmentation_list"]) + 1, figsize=(20, 20))
+      
+      # Plot for TAC_mes_batch images
+      axes[0, 0].imshow(TAC_mes_batch[0, 0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      axes[0, 1].imshow(TAC_mes_batch[0, 0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 1].axis("off")
+      axes[0, 1].set_title("50t")
+      
+      # Hide the unused subplots in the first row
+      for j in range(2, len(self.config["segmentation_list"]) + 1):
+          axes[0, j].axis("off")
+      
+      # Plot for truth_seg images
+      fig.suptitle("Patient: " + str(batch[0][0]) + " Slice: " + str(batch[1][0].cpu().detach().numpy()))
+      
+      # First subplot for truth_seg
+      im1 = axes[1, 0].imshow(truth_seg[0, 0, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("Background")
+      im1.set_clim(0, 1)
+      
+      # Rest of the subplots for truth_seg
+      for i in range(1, len(self.config["segmentation_list"]) + 1):
+          im = axes[1, i].imshow(truth_seg[0, i, :, :].cpu().detach().numpy(), cmap="gray")
+          axes[1, i].axis("off")
+          axes[1, i].set_title(self.config["segmentation_list"][i - 1])
+          im.set_clim(0, 1)
+      
+      plt.tight_layout()
+      wandb.log({"Input (training batch)": wandb.Image(fig)})
       plt.close()
 
-      kinetic_params = apply_final_activation(logits_params, self.config)
+    #------------------ Forward pass ------------------
+    kin_logits, seg_logits = self.forward(x)        # [b, 4, 1, w, h]
+
+    #------------------ Process Kinetic Output ------------------
+    _, _, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=kin_logits)
+    if self.config["mask_loss"]:
+      _, _, kin_logits = mask_data(TAC_mes_batch, TAC_pred_batch, kin_logits, self.time_stamp, patch_size=self.patch_size)
+
+    #------------------ Process Segmentation Output ------------------
+    seg_logits = seg_logits[:, :, 0, :, :]        # [b, Seg, w, h]
+    seg_output = self.softmax(seg_logits)
+    seg_output = torch.argmax(seg_output, dim=1)
+
+    #------------------ Loss ------------------
+    loss_kin = self.kin_loss_function(TAC_pred_batch, batch[2])
+    loss_seg = self.seg_loss_function(seg_logits, truth_seg, batch[2])
+    loss = loss_kin + loss_seg
+
+    #------------------ Log the losses ------------------
+    self.log('train_loss', loss, on_step=False, on_epoch=True)
+    self.log('train_loss_kinetics', loss_kin, on_step=False, on_epoch=True)
+    self.log('train_loss_segmentation', loss_seg, on_step=False, on_epoch=True)
+    
+    #------------------ Log the learning rate ------------------
+    self.log('Learning_Rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+    #------------------ Log the figures ------------------
+    if ((np.random.rand() < 0.5) and (self.num_train_log_images < self.config["log_train_imgs"])):
+      # ------------------ Log Slice ------------------
+      kinetic_params = apply_final_activation(kin_logits, self.config)
       fig = log_slice(self.config, TAC_mes_batch, kinetic_params)
       wandb.log({"Slice (training batch)": wandb.Image(fig)})
       plt.close()
+      
+      #------------------ Log Segmentation ------------------
+      fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+      fig.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
+      #First subplot
+      im1 = axes[0, 0].imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      im1.set_clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
+      #Second subplot
+      im2 = axes[1, 0].imshow(batch[2][0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("50t")
+      im2.set_clim(0, np.max(batch[2][0, 50, :, :].cpu().detach().numpy()))
+      #Rest of the subplots
+      axes[0, 1].imshow(seg_output[0, :, :].cpu().detach().numpy(), cmap="binary")
+      axes[0, 1].axis("off")
+      axes[0, 1].set_title("prediction")
+      axes[1, 1].imshow(truth_seg[0, 1, :, :].cpu().detach().numpy(), cmap="binary")
+      axes[1, 1].axis("off")
+      axes[1, 1].set_title("Truth")
+      plt.tight_layout()
+      wandb.log({"Segmentation (training batch)": wandb.Image(fig)})
+      plt.close()
 
-    return {"loss": loss_dict["loss"]}
+      self.num_train_log_images += 1
+
+    return {"loss": loss}
+
+  def on_train_epoch_end(self):
+    self.num_train_log_images = 0
+    return 
 
   def validation_step(self, batch, batch_idx):
     # batch = [patient, slice, TAC]
     TAC_mes_batch = torch.unsqueeze(batch[2], 1) # adding channel dimension --> [b, 1, 62, w, h]
     x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
+    truth_seg = F.one_hot(batch[3].long(), num_classes= len(self.config["segmentation_list"]) + 1).permute(0, 3, 1, 2).float()  # [b, SEG, w, h]
 
-    logits_params = self.forward(x)        # [b, 4, 1, w, h]
-
-    loss_dict, metric_dict, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=logits_params)
-
-    self.log('val_loss', loss_dict["loss"].item(), on_step=False, on_epoch=True)
-    self.log_dict(metric_dict, on_step=False, on_epoch=True)
-
-    # Prepare data to log
-    if batch_idx % self.config["log_img_freq"] == 0:
-
-      if self.config["mask_loss"]:
-        TAC_mes_batch, TAC_pred_batch, logits_params = mask_data(TAC_mes_batch, TAC_pred_batch, logits_params, self.time_stamp, patch_size=self.patch_size)
-
-      # Log TAC                
-      fig = log_curves(TAC_mes_batch[:, :, 0:62, :, :].cpu().detach().numpy(), TAC_pred_batch.cpu().detach().numpy(), self.time_stamp.to("cpu"), self.time_stamp.to("cpu"), self.current_epoch)
-      fig_curve = {"TAC (validation batch)": wandb.Image(fig)}
+    #------------------ Log the input and target ------------------
+    if self.current_epoch == 0 and (batch_idx == 0 or batch_idx == 1):
+      fig, axes = plt.subplots(2, len(self.config["segmentation_list"]) + 1, figsize=(20, 20))
+      
+      # Plot for TAC_mes_batch images
+      axes[0, 0].imshow(TAC_mes_batch[0, 0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      axes[0, 1].imshow(TAC_mes_batch[0, 0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 1].axis("off")
+      axes[0, 1].set_title("50t")
+      
+      # Hide the unused subplots in the first row
+      for j in range(2, len(self.config["segmentation_list"]) + 1):
+          axes[0, j].axis("off")
+      
+      # Plot for truth_seg images
+      fig.suptitle("Patient: " + str(batch[0][0]) + " Slice: " + str(batch[1][0].cpu().detach().numpy()))
+      
+      # First subplot for truth_seg
+      im1 = axes[1, 0].imshow(truth_seg[0, 0, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("Background")
+      im1.set_clim(0, 1)
+      
+      # Rest of the subplots for truth_seg
+      for i in range(1, len(self.config["segmentation_list"]) + 1):
+          im = axes[1, i].imshow(truth_seg[0, i, :, :].cpu().detach().numpy(), cmap="gray")
+          axes[1, i].axis("off")
+          axes[1, i].set_title(self.config["segmentation_list"][i - 1])
+          im.set_clim(0, 1)
+      
+      plt.tight_layout()
+      wandb.log({"Input (validation batch)": wandb.Image(fig)})
       plt.close()
 
+
+    #------------------ Forward pass ------------------
+    kin_logits, seg_logits = self.forward(x)        # [b, 4, 1, w, h]
+
+    #------------------ Process Kinetic Output ------------------
+    _, _, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=kin_logits)
+    if self.config["mask_loss"]:
+      _, _, kin_logits = mask_data(TAC_mes_batch, TAC_pred_batch, kin_logits, self.time_stamp, patch_size=self.patch_size)
+
+    #------------------ Process Segmentation Output ------------------
+    seg_logits = seg_logits[:, :, 0, :, :]        # [b, Seg, w, h]
+    seg_output = self.softmax(seg_logits)
+    seg_output = torch.argmax(seg_output, dim=1)
+
+    #------------------ Loss ------------------
+    loss_kin = self.kin_loss_function(TAC_pred_batch, batch[2])
+    loss_seg = self.seg_loss_function(seg_logits, truth_seg, batch[2])
+    loss = loss_kin + loss_seg
+
+    #----------------- Log the losses ------------------
+    self.log('val_loss_kinetics', loss_kin, on_step=False, on_epoch=True)
+    self.log('val_loss_segmentation', loss_seg, on_step=False, on_epoch=True)
+    self.log('val_loss', loss, on_step=False, on_epoch=True)
+
+    #------------------ Log the figures ------------------
+    if ((np.random.rand() < 0.5) and (self.num_val_log_images < self.config["log_val_imgs"])):
       # Log slices
-      kinetic_params = apply_final_activation(logits_params, self.config)
+      kinetic_params = apply_final_activation(kin_logits, self.config)
       fig = log_slice(self.config, TAC_mes_batch, kinetic_params)
       fig_slice = {"Slice (validation batch)": wandb.Image(fig)}
       plt.close()
 
-      self.validation_step_outputs.append({"fig_slice": fig_slice, "fig_curve": fig_curve})
-      return {'val_loss': loss_dict["loss"].item(), "fig_slice": fig_slice, "fig_curve": fig_curve}
+      #------------------ Log Segmentation ------------------
+      fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+      fig.suptitle("Patient: "+str(batch[0][0])+" Slice: "+str(batch[1][0]))
+      #First subplot
+      im1 = axes[0, 0].imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      im1.set_clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
+      #Second subplot
+      im2 = axes[1, 0].imshow(batch[2][0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("50t")
+      im2.set_clim(0, np.max(batch[2][0, 50, :, :].cpu().detach().numpy()))
+      #Rest of the subplots
+      axes[0, 1].imshow(seg_output[0, :, :].cpu().detach().numpy(), cmap="binary")
+      axes[0, 1].axis("off")
+      axes[0, 1].set_title("prediction")
+      axes[1, 1].imshow(truth_seg[0, 1, :, :].cpu().detach().numpy(), cmap="binary")
+      axes[1, 1].axis("off")
+      axes[1, 1].set_title("Truth")
+      plt.tight_layout()
+      fig_seg = wandb.log({"Segmentation (validation batch)": wandb.Image(fig)})
+      plt.close()
+
+      self.num_val_log_images += 1
+
+      self.validation_step_outputs.append({"fig_seg": fig_seg, "fig_slice": fig_slice})
+      return {'val_loss': loss, "fig_seg": fig_seg, "fig_slice": fig_slice}
     else:
-      self.validation_step_outputs.append({"val_loss": loss_dict["loss"].item(), "fig_slice": None, "fig_curve": None})
-      return {'val_loss': loss_dict["loss"].item(), "fig_slice": None, "fig_curve": None}
+      self.validation_step_outputs.append({"val_loss": loss, "fig_seg": None, "fig_slice": None})
+      return {'val_loss': loss, "fig_seg": None, "fig_slice": None}
   
   def on_validation_epoch_end(self):
-    for o in self.validation_step_outputs:
-      if not o["fig_slice"] is None:  wandb.log(o["fig_slice"])
-      if not o["fig_curve"] is None:  wandb.log(o["fig_curve"])
-    
     self.validation_step_outputs.clear()
+    self.num_val_log_images = 0
     return
   
   def test_step(self, batch, batch_idx):
@@ -366,36 +510,66 @@ class SpaceTempUNet(pl.LightningModule):
     TAC_mes_batch = torch.unsqueeze(batch[2], 1) # adding channel dimension --> [b, 1, 62, w, h]
     x = torch.nn.functional.pad(TAC_mes_batch, (0,0,0,0,1,1), "replicate")   # padding --> [b, 1, 64, w, h]
 
-    logits_params = self.forward(x)        # [b, 4, 1, w, h]
-    metric_dict, TAC_pred_batch = self.accumulate_metric(batch=batch, logits=logits_params)
-    kinetic_params = apply_final_activation(logits_params, self.config)
+    #------------------ Forward pass ------------------
+    kin_logits, seg_logits = self.forward(x)        # [b, 4, 1, w, h]
 
-    if self.config["mask_loss"]:
-      TAC_mes_batch, TAC_pred_batch, kinetic_params = mask_data(TAC_mes_batch, TAC_pred_batch, kinetic_params, self.time_stamp, patch_size=self.patch_size)
+    #------------------ Process Kinetic Output ------------------
+    kinetic_params = apply_final_activation(kin_logits, self.config)
+    _, _, TAC_pred_batch = self.accumulate_loss_and_metric(batch=batch, logits=kin_logits)
 
-    # Save predictions
+    #------------------ Process Segmentation Output ------------------
+    seg_logits = seg_logits[:, :, 0, :, :]        # [b, Seg, w, h]
+    seg_output = self.softmax(seg_logits)
+    seg_output = torch.argmax(seg_output, dim=1)
+
+    #------------------ Save the results locally ------------------
     current_run_name = wandb.run.name
     resume_run_name = os.path.split(os.path.split(self.trainer.ckpt_path)[0])[1]
     self.img_path, self.pd_path, self.pt_path, self.nifty_path = make_save_folder_struct(current_run_name, resume_run_name, root_checkpoints_path, self.trainer.ckpt_path)
-    to_save = [patients_in_batch, slices_in_batch, kinetic_params]
-    s = int(slices_in_batch.item())
-    torch.save(to_save, os.path.join(self.pt_path, "P_"+str(patients_in_batch[0])+"_S_"+str(s)+"_B_"+str(batch_idx)+".pt"))
+    to_save = [patients_in_batch, slices_in_batch, seg_output]
+    torch.save(to_save, os.path.join(self.pt_path, "P_"+str(patients_in_batch[0])+"_B_"+str(batch_idx)+".pt"))
 
-    # Prepare data to log
+    #------------------ Log the figures ------------------
     if batch_idx % 50 == 0:
-      if not len(slices_in_batch) == 1: s = slices_in_batch
-
       # Log TAC             
       log_curves(TAC_mes_batch[:, :, 0:62, :, :].cpu().detach().numpy(), TAC_pred_batch.cpu().detach().numpy(), self.time_stamp.to("cpu"), self.time_stamp.to("cpu"), self.current_epoch)
-      plt.savefig(os.path.join(self.img_path, "TAC_P_"+str(patients_in_batch[0])+"_S_"+str(s)+"_B_"+str(batch_idx)+".png"))
+      plt.savefig(os.path.join(self.img_path, "TAC_P_"+str(patients_in_batch[0])+"_B_"+str(batch_idx)+".png"))
       plt.close()
 
       # Log slices
       log_slice(self.config, TAC_mes_batch, kinetic_params)
-      plt.savefig(os.path.join(self.img_path, "slices_P_"+str(patients_in_batch[0])+"_S_"+str(s)+"_B_"+str(batch_idx)+".png"))
+      plt.savefig(os.path.join(self.img_path, "slices_P_"+str(patients_in_batch[0])+"_B_"+str(batch_idx)+".png"))
       plt.close()
 
-    return {"patients_in_batch": patients_in_batch, "slices_in_batch": slices_in_batch, "metric_dict": metric_dict}
+      # Log segmentation
+      fig, axes = plt.subplots(2, len(self.config["segmentation_list"]) + 2, figsize=((len(self.config["segmentation_list"]) + 2) * 2, len(self.config["segmentation_list"]) + 2))  
+      fig.suptitle("Patient: "+str(patients_in_batch[0])+" Slice: "+str(slices_in_batch[0]))
+      #First subplot
+      im1 = axes[0, 0].imshow(batch[2][0, 30, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[0, 0].axis("off")
+      axes[0, 0].set_title("30t")
+      im1.set_clim(0, np.max(batch[2][0, 30, :, :].cpu().detach().numpy()))
+      #Second subplot
+      im2 = axes[1, 0].imshow(batch[2][0, 50, :, :].cpu().detach().numpy(), cmap="gray")
+      axes[1, 0].axis("off")
+      axes[1, 0].set_title("50t") 
+      im2.set_clim(0, np.max(batch[2][0, 50, :, :].cpu().detach().numpy()))
+      #Rest of the subplots
+      for i in range(0, (len(self.config["segmentation_list"]) + 1), 1):
+        axes[0, i+1].imshow(seg_output[0, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[0, i+1].axis("off")
+        title = self.config["segmentation_list"][i - 1] if i > 0 else "Background"
+        axes[0, i+1].set_title(title)
+        axes[1, i+1].imshow(batch[3][0, i, :, :].cpu().detach().numpy(), cmap="binary")
+        axes[1, i+1].axis("off")
+        axes[1, i+1].set_title("Truth")
+      plt.tight_layout()
+      plt.savefig(os.path.join(self.img_path, "seg_P_"+str(patients_in_batch[0])+"_B_"+str(batch_idx)+".png"))
+      plt.close()
+      
+    return {"patients_in_batch": patients_in_batch, "slices_in_batch": slices_in_batch, "seg_output": seg_output, "TAC_pred_batch": TAC_pred_batch}
+
+
   
   def on_test_epoch_end(self, outputs):
     run_name = os.path.split(os.path.split(self.pd_path)[0])[1]
@@ -490,8 +664,5 @@ class SpaceTempUNet(pl.LightningModule):
             'frequency': 1 if self.config['reduce_monitor'] == "val_loss" else self.config['val_freq'],
             'strict': True,
         }
-
-    # Define the warmup scheduler
-    #warmup_scheduler = WarmupScheduler(optimizer, total_epochs=self.config["epochs"], warmup_epochs=self.config["warmup_epochs"])
 
     return [optimizer], [scheduler]

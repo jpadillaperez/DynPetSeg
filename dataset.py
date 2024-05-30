@@ -10,6 +10,8 @@ from utils.utils_kinetic import PET_2TC_KM
 from utils.utils_torch import torch_interp_1d
 from utils.set_root_paths import root_data_path, root_dataset_path
 from tqdm import tqdm
+import nibabel as nib
+from scipy.ndimage import label
 
 class DynPETDataset(CacheDataset):
     def __init__(self, config, dataset_type, patch_size=0):
@@ -291,7 +293,11 @@ class DynPETDataset(CacheDataset):
                             current_data[slice, i, :, :] = current_slice/1000           # from Bq/ml to kBq/ml
 
                 #Iterate over all the segmentations of the dynamic pets of the same patients
-                segmentation_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentation/*.nii.gz")
+                #if self.train_config["segmentation_postprocessing"]:
+                print("\t\tImporting preprocessed segmentation...")
+                segmentation_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentation_processed/*.nii.gz")
+                #else:
+                #    segmentation_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentation/*.nii.gz")
                 segmentation_list = [s for s in segmentation_list if s.split("/")[-1].split(".")[0] in self.train_config["segmentation_list"]]
                 current_seg_data = torch.zeros((max_num_slices, len(segmentation_list) + 1, size, size))  #[SLICES, SEGMENTATION, X, Y] TODO: better [SEGMENTATION, SLICES, X, Y]?
 
@@ -387,3 +393,56 @@ class DynPETDataset(CacheDataset):
         
         # GOOD TO KNOW: self.save_data_folder and file_name are designed so that different datasets with different patients list, patch size or number of slices are saved separately and not overwritten.
         # This allows to save time when generating bigger datasets!
+
+
+#----------------- Functions -----------------
+
+def keep_largest_segmentation(input_path, output_path):
+    # Load the NIfTI file
+    img = nib.load(input_path)
+    data = img.get_fdata()
+
+    # Label connected components
+    labeled_data, num_features = label(data)
+
+    # Find the largest component
+    largest_component = 0
+    largest_size = 0
+    for feature in range(1, num_features + 1):
+        feature_size = np.sum(labeled_data == feature)
+        if feature_size > largest_size:
+            largest_size = feature_size
+            largest_component = feature
+
+    # Keep only the largest component
+    if largest_component > 0:
+        data[labeled_data != largest_component] = 0
+
+    # Save the resulting segmentation
+    new_img = nib.Nifti1Image(data, img.affine, img.header)
+    nib.save(new_img, output_path)
+
+def process_files(base_dir):
+    # Use glob to find all patient folders matching the pattern
+    patient_folders = glob.glob(os.path.join(base_dir, '*DynamicFDG*'))
+    
+    for patient_folder in patient_folders:
+        # Construct the path to the liver.nii.gz file
+        input_path = os.path.join(patient_folder, 'NIFTY/Resampled/segmentation/liver.nii.gz')
+        
+        if os.path.exists(input_path):
+            output_path = os.path.join(patient_folder, 'NIFTY/Resampled/segmentation_processed')
+            os.makedirs(output_path, exist_ok=True)
+            output_path = os.path.join(output_path, 'liver.nii.gz')
+            keep_largest_segmentation(input_path, output_path)
+            print(f"Processed {input_path}")
+        else:
+            print(f"File not found: {input_path}")
+
+
+def __main__():
+    base_dir = '/home/guests/jorge_padilla/data/DynamicPET_Segmentation'
+    process_files(base_dir)
+
+if __name__ == "__main__":
+    __main__()

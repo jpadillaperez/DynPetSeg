@@ -6,6 +6,8 @@ from training.training_kinetics import train_unet_kinetics, test_unet_kinetics
 from training.training_seg0 import train_unet_seg0, test_unet_seg0
 from training.training_seg1 import train_unet_seg1, test_unet_seg1
 from training.training_seg2 import train_unet_seg2, test_unet_seg2
+from training.training_seg3 import train_unet_seg3, test_unet_seg3
+from training.training_baseline1 import train_unet_baseline1
 
 #os.environ["WANDB_MODE"] = "offline"
 torch.cuda.empty_cache()
@@ -17,7 +19,7 @@ if __name__ == '__main__':
 
   # Parse command-line arguments
   parser = argparse.ArgumentParser(description='Run experiments')
-  parser.add_argument('--experiment', type=str, default='kinetics', choices=['kinetics', 'seg0', 'seg1', 'seg2', 'sweep'],
+  parser.add_argument('--experiment', type=str, default='kinetics', choices=['kinetics', 'seg0', 'seg1', 'seg2', 'seg3', 'baseline1', 'sweep'],
                       help='Experiment to run (default: kinetics)')
   parser.add_argument('--modality', type=str, default='train', choices=['train', 'test'],
                       help='Training or testing mode (default: train)')
@@ -102,6 +104,30 @@ if __name__ == '__main__':
           train_unet_seg2(kinetic_resume_path=args.kinetic_ckpt, device=device)
         else:
           train_unet_seg2(device=device)
+
+    # Segmentation 3
+    elif args.experiment == "seg3":
+      if args.modality == "test": 
+        test_unet_seg3(checkpoint_path=args.ckpt, device=device)
+      else:
+        if args.ckpt and args.kinetic_ckpt:
+          train_unet_seg3(kinetic_resume_path=args.kinetic_ckpt, resume_path=args.ckpt, device=device)
+        elif args.ckpt:
+          train_unet_seg3(resume_path=args.ckpt, device=device)
+        elif args.kinetic_ckpt:
+          train_unet_seg3(kinetic_resume_path=args.kinetic_ckpt, device=device)
+        else:
+          train_unet_seg3(device=device)
+
+    # Baseline 1
+    elif args.experiment == "baseline1":
+      if args.modality == "test": 
+        test_unet_baseline1(checkpoint_path=args.ckpt, device=device)
+      else:
+        if args.ckpt:
+          train_unet_baseline1(resume_path=args.ckpt, device=device)
+        else:
+          train_unet_baseline1(device=device)
 
 
     else:

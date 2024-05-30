@@ -5,21 +5,14 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from utils.set_root_paths import root_path, root_checkpoints_path
-from network import SpaceTempUNetSeg2
+from network import SpaceTempUNetBaseline1
 
-def train_unet_seg2(kinetic_resume_path=None, resume_path=None, device=torch.device("cuda:0")):
+def train_unet_baseline1(resume_path=None, device=torch.device("cuda:0")):
     """ 
     Train the UNet model for Dynamic PET organ segmentation
     Args:
-      kinetic_resume_path: path to the checkpoint to resume training of the kinetic model
       resume_path: path to the checkpoint to resume training
     """
-
-    if kinetic_resume_path:
-      assert resume_path is None, "Only Kinetic checkpoint or Normal checkpoint should be given, not both."
-    if resume_path:
-      assert kinetic_resume_path is None, "Only Kinetic checkpoint or Normal checkpoint should be given, not both."
-
 
     if device == torch.device("cuda:0"):
       num_device = [0]
@@ -29,25 +22,14 @@ def train_unet_seg2(kinetic_resume_path=None, resume_path=None, device=torch.dev
       accelerator = "cpu"
 
     # Set up Weights&Biases
-    wandb.init(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config_seg2.yaml"))
-    wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config_seg2.yaml"))
+    wandb.init(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config_baseline1.yaml"))
+    wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config_baseline1.yaml"))
 
     # Set up the UNet model
     wandb.config["device"] = device
 
     # Set up the UNet model
-    unet = SpaceTempUNetSeg2(wandb.config)
-
-    # Load kinetic weights
-    if kinetic_resume_path is not None:
-      print("Resuming training from kinetic imaging train: ", kinetic_resume_path)
-      weights = torch.load(kinetic_resume_path)
-      for name, param in unet.model_kinetics.named_parameters():
-        if ("model." + name) in weights["state_dict"].keys():
-          param.data = weights["state_dict"]["model." + name].data
-          param.requires_grad = False
-        else:
-          print("\tParameter not found: model." + name)
+    unet = SpaceTempUNetBaseline1(wandb.config)
 
     # Load all weights
     if resume_path is not None:
@@ -94,7 +76,7 @@ def train_unet_seg2(kinetic_resume_path=None, resume_path=None, device=torch.dev
     wandb.finish()
 
 
-def test_unet_seg2(checkpoint_path, device=torch.device("cuda:0")):
+def test_unet_baseline1(checkpoint_path, device=torch.device("cuda:0")):
     """
     Test the UNet model for Dynamic PET reconstruction
     Args:
@@ -110,8 +92,8 @@ def test_unet_seg2(checkpoint_path, device=torch.device("cuda:0")):
       num_device = 1
       accelerator = "cpu"
 
-    wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config_seg2.yaml"))
-    unet = SpaceTempUNetSeg2(wandb.config, device=device)
+    wandb_logger = WandbLogger(project="DynamicPet_segmentation", config=os.path.join(root_path, "config/config_baseline1.yaml"))
+    unet = SpaceTempUNetBaseline1(wandb.config, device=device)
 
     trainer = pl.Trainer(gpus=num_device,
                          accelerator=accelerator,

@@ -2,26 +2,17 @@
 overfit:
   value: False
 
-use_spatio_temporal_unet: #Convolution:: true -> Spatio-temporal, false -> 3D
-  value: True
-
-model_depth:
+model_depth_seg:
   value: 4
-
-max_pool_time: #Pooling:: true -> 3D, false -> Space
-  value: True
-
-final_activation: #Final activation:: multi_clamp, clamp, absolute
-  value: "multi_clamp" 
 
 activation:
   value:  "ELU" #TODO: Add GELU
 
-bounding_box:
-  value: False
-
 weight_init:
   value: None # Options: kaiming, xavier, None
+
+bounding_box:
+  value: False
 
 patch_size:
   value: 256
@@ -34,12 +25,11 @@ patient_list:
           #"validation": ["01"],
           "train": ["01", "07", "06", "10", "15", "19", "21", "23", "27", "29"],
           #"train": ["01", "07", "06"],
-          #"validation": ["14", "17", "18"], #DONE: remove 01 from validation because there is not batch = 5 anymore
-          "validation": ["18", "17"],
+          "validation": ["14", "17", "18"],
+          #"validation": ["18", "17"],
           #"validation": ["14"],
           "test": ["28", "08", "09", "20", "24", "25", "26", "03"]
         }
-
 
 segmentation_list:
   value: ["liver"]
@@ -48,9 +38,15 @@ segmentation_list:
   #value: ["brain", "liver", "pancreas", "lung"]
   #value: ["brain", "liver", "pancreas", "lung", "heart"]
 
-  
+segmentation_postprocessing:
+  value: True
+
 remove_slices_without_segmentation:
   value: True
+
+# Should be: 
+# - "all" if all the slices must be included
+# - "no_legs" if the legs must be excluded
 
 slices_per_patient_train:         
   value: "all"
@@ -64,29 +60,26 @@ slices_per_patient_test:
 # Training options
 epochs: 
   value: 600
-  
-batch_norm: 
-  desc: Use of batch normalization
+
+batch_norm_seg: 
   value: False
 
 learning_rate:
-  value: 0.0001 
+  value: 0.001 #0.0001 
 
 batch_size: 
-  value: 1
+  value: 8
 
 lr_scheduler:
   value: "ReduceLROnPlateau" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau
-
-# Parameters specific to ReduceLROnPlateau
 reduce_monitor:
   value: "train_loss"
 reduce_factor:
   value: 0.5
 reduce_patience:
-  value: 5
+  value: 10
 reduce_threshold:
-  value: 0.001
+  value: 0.0001
 
 # Warmup Epochs
 warmup_epochs:
@@ -97,12 +90,12 @@ weight_decay:
   value: 0
 
 # Other training parameters
-log_img_freq:
-  value: 1000
-log_freq:
+log_train_imgs:
   value: 5
+log_val_imgs:
+  value: 10
 val_freq:
-  value: 5
+  value: 2
   
 # Test options
 #saved_checkpoint:
