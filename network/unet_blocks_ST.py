@@ -3,15 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Enforce determinism
-random_seed = 1 # or any of your favorite number 
-torch.use_deterministic_algorithms(True) 
-torch.manual_seed(random_seed)
-torch.cuda.manual_seed(random_seed)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-np.random.seed(random_seed)
-
 class EncoderBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, bottleneck, config):
@@ -197,8 +188,6 @@ class UNet_ST(nn.Module):
     def __init__(self, in_channels, out_channels, config):
         super(UNet_ST, self).__init__()
 
-        print("Instantiating Spatio-Temporal UNet")
-        
         self.encoder = Encoder(in_channels, config)
         self.decoder = Decoder(in_channels, out_channels, config)
 

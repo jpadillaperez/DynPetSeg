@@ -1,0 +1,99 @@
+#-------------- General Configuration --------------
+overfit:
+  value: False
+
+init_weights:
+  value: None # Options: kaiming, xavier, None
+
+inverse_segmentations:
+  value: False
+
+#-------------- Data Configuration --------------
+# Dataset
+patient_list:
+  value:  {
+          "train": ["01", "07", "06", "10", "15", "19", "21", "23", "27", "29"],
+          "validation": ["14", "17", "18"],
+          "test": ["28", "08", "09", "20", "24", "25", "26", "03"]
+        }
+
+slices_per_patient:   # Options: "all", "no_legs"       
+  value: "all"
+
+patch_size:
+  value: 192
+  #value: 256
+
+bounding_box:
+  value: False
+
+segmentation_list:
+  value: ["liver", "kidneys", "vessels", "aorta"]
+
+#-------------- Kinetics Model --------------
+use_spatio_temporal_unet: #Convolution:: true -> Spatio-temporal, false -> 3D
+  value: True
+  
+model_depth:
+  value: 4
+
+mask_loss:
+  value: True
+
+use_pearson_metric:
+  value: False     # Setting it to True may slow down the training 
+
+max_pool_time: #Pooling:: true -> 3D, false -> Space
+  value: True
+
+final_activation: #Final activation:: multi_clamp, clamp, absolute
+  value: "multi_clamp" 
+
+activation:
+  value:  "ELU" #TODO: Add GELU
+
+batch_norm: 
+  value: False
+
+#-------------- Adaptation Models --------------
+
+loss_function: # Options: "dice", "dice_focal"
+  value: "dice_focal"
+
+loss_combination:
+  value: None
+
+#-------------- Training Configuration --------------
+epochs: 
+  value: 600
+
+learning_rate:
+  value: 0.0001 
+
+monitor_metric:
+  value: "val_loss"
+
+lr_scheduler:
+  value: "ReduceLROnPlateau" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau
+reduce_factor:
+  value: 0.5
+reduce_patience:
+  value: 10
+reduce_threshold:
+  value: 0.001
+
+warmup_epochs:
+  value: 0
+
+weight_decay:
+  value: 0.01
+
+#-------------- Logging Configuration --------------
+log_train_imgs:
+  value: 5
+
+log_val_imgs:
+  value: 10
+
+val_freq:
+  value: 3

@@ -33,16 +33,17 @@ def apply_final_activation(logits, config):
     return
   return kinetic_params
 
-def make_save_folder_struct(current_run_name, resume_run_name, root_checkpoints_path, trainer_ckpt_path, if_return_only=False):
+def make_save_folder_struct(current_run_name, resume_run_name, output_path, trainer_ckpt_path, if_return_only=False):
   if current_run_name == resume_run_name:
       run_name = current_run_name
   else:
     run_name = resume_run_name
 
   if "last" in trainer_ckpt_path: 
-    save_path = os.path.join(root_checkpoints_path, "output", run_name+"_last")
+    save_path = os.path.join(output_path, "test", run_name+"_last")
   else:    
-    save_path = os.path.join(root_checkpoints_path, "output", run_name+"_best")
+    save_path = os.path.join(output_path, "test", run_name+"_best")
+
   img_path = os.path.join(save_path, "images")
   pd_path = os.path.join(save_path, "tables")
   pt_path = os.path.join(save_path, "raw_prediction")

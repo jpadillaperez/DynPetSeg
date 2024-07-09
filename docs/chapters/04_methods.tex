@@ -1,0 +1,115 @@
+% !TeX root = ../main.tex
+% !TeX root = ../main.tex
+% Add the above to each chapter to make compiling the PDF easier in some editors.
+
+\chapter{Methods}\label{chapter:methods}
+
+\section{Overview of Model Development}
+\section{Baseline Model: De Benetti et al.'s Approach}
+
+\subsection{Overview and Key Features}
+De Benetti et al. introduced a novel self-supervised learning approach for physiologically-based pharmacokinetic (PBPK) modeling in dynamic PET imaging. This method addresses several key challenges in kinetic parameter estimation:
+
+\begin{itemize}
+    \item \textbf{Direct Parameter Estimation:} The model estimates kinetic parameters directly from dynamic PET data, bypassing intermediate steps like time-activity curve fitting.
+    
+    \item \textbf{Self-Supervised Learning:} By eliminating the need for manually labeled training data, this paradigm overcomes a significant bottleneck in supervised learning approaches for medical imaging.
+    
+    \item \textbf{Whole-Body Analysis:} Designed for long axial field of view (LAFOV) PET scanners, the method enables simultaneous analysis of multiple organs and tissues.
+    
+    \item \textbf{Integration of Pharmacokinetic Models:} The approach incorporates established 2-Tissue Compartment (2TC) models into the deep learning framework.
+    
+    \item \textbf{Versatility:} The method implements both reversible and irreversible 2TC models, allowing for accurate modeling of various tracer behaviors.
+\end{itemize}
+
+\subsection{Architecture and Implementation}
+
+[MENTION THE ABLATION STUDY AND MENTION THAT WE KEEP THE BEST COMBINATION OF PARAMETERS]
+
+\subsubsection{Model Structure}
+The core of De Benetti et al.'s approach is a spatio-temporal UNet architecture, designed to process 4D dynamic PET data (3D spatial + 1D temporal). This structure allows the model to capture both spatial and temporal features of tracer distribution.
+
+\subsubsection{Input and Output}
+
+The model takes 4D dynamic PET data as input and produces kinetic parameter maps as output. These maps include four key parameters: K1 (rate constant for tracer influx), k2 (rate constant for tracer efflux), k3 (rate constant for tracer binding), and VB (blood volume fraction). By directly estimating these parameters, the model provides a comprehensive view of tracer kinetics within the tissue of interest.
+
+\subsubsection{Training Process}
+The model employs a self-supervised learning strategy for training, which eliminates the need for manually labeled data. This innovative approach enables the model to learn by reconstructing the input dynamic PET data from the estimated kinetic parameters. By doing so, the model effectively uses the input data as its own supervisory signal. This self-supervised method allows the network to capture complex spatiotemporal patterns in the dynamic PET scans without relying on external annotations, making it particularly valuable for large-scale, unlabeled datasets in medical imaging.
+
+\subsection{Relevance to Our Work}
+De Benetti et al.'s model serves as a foundation for our research, demonstrating the potential of deep learning in kinetic parameter estimation from dynamic PET data. Key aspects that inform our work include:
+
+\begin{itemize}
+    \item The self-supervised learning approach, which we aim to build upon and potentially enhance.
+    \item The integration of pharmacokinetic models with deep learning architectures.
+    \item The ability to process whole-body dynamic PET scans, which aligns with our research goals.
+    \item The versatility in implementing different kinetic models, which we seek to expand upon.
+\end{itemize}
+
+Our work aims to extend this approach by 
+
+[BRIEFLY MENTION YOUR SPECIFIC CONTRIBUTIONS OR MODIFICATIONS, E.G., INCORPORATING ADDITIONAL IMAGING MODALITIES, ENHANCING THE MODEL ARCHITECTURE, OR APPLYING IT TO DIFFERENT CLINICAL SCENARIOS].
+
+\section{Segmentation-Adapted Models}
+\subsection{Model A: Cascade Network}
+\subsubsection{Architectural Changes}
+\subsubsection{Integration with Kinetic Parameter Estimation}
+
+\subsection{Model B: Multi-Decoder Head Network}
+\subsubsection{Architectural Changes}
+\subsubsection{Integration with Kinetic Parameter Estimation}
+
+\subsection{Model C: Multi-Channel Decoder Network}
+\subsubsection{Architectural Changes}
+\subsubsection{Integration with Kinetic Parameter Estimation}
+
+
+
+
+\subsection{Model C: Multi-Channel Decoder Network}
+\subsubsection{Architectural Changes}
+The Multi-Channel Decoder Network (Model C) is an adaptation of the original kinetics model, aiming to perform both kinetic parameter estimation and segmentation tasks simultaneously. The key architectural changes include:
+
+Expanded output channels: The network's output size is increased to accommodate both kinetic parameters and segmentation masks. This includes channels for kinetic parameters, segmentation classes, and a background class.
+Flexible model architecture: The network can use either a spatio-temporal UNet or a standard UNet, depending on the configuration. This allows for experimentation with different network structures to find the most effective approach.
+Multi-task loss function: The model employs a combination of kinetic loss and segmentation loss. For segmentation, either Dice loss or Dice Focal loss can be used, providing flexibility in addressing class imbalance issues.
+
+\subsubsection{Integration with Kinetic Parameter Estimation}
+The integration of segmentation with kinetic parameter estimation is achieved through:
+
+Shared encoder: The network utilizes a single encoder for both tasks, operating under the assumption that features useful for kinetic parameter estimation are also relevant for segmentation.
+Multi-task output: The forward pass of the network produces both kinetic parameters and segmentation logits, allowing for simultaneous prediction of both tasks.
+Combined loss: The total loss is a weighted combination of kinetic loss and segmentation loss. The relative importance of each loss can be adjusted using a rescaling factor, allowing for fine-tuning of the multi-task learning process.
+
+Shared optimization: Both tasks are optimized simultaneously using the same optimizer and learning rate scheduler, promoting a unified learning process.
+It's important to highlight that despite these architectural changes and integration efforts, the results of this adaptation were not successful. This lack of success could be attributed to several factors:
+Task interference: The kinetic parameter estimation and segmentation tasks might be conflicting, leading to suboptimal performance on both tasks.
+
+Imbalanced learning: One task might dominate the learning process, causing the network to underperform on the other task.
+Insufficient network capacity: The shared network might not have enough capacity to perform both tasks effectively.
+Feature mismatch: The features useful for kinetic parameter estimation might not be optimal for segmentation, or vice versa.
+Given that the results were not successful, this approach was likely abandoned in favor of more effective methods. The lack of presented results for this network underscores the challenges in combining these two tasks in a single multi-task learning framework. This experience highlights the complexity of designing effective multi-task models in medical imaging, particularly when combining tasks as diverse as kinetic parameter estimation and segmentation.
+
+
+
+
+
+
+
+
+\section{Simplified Baseline Models}
+\subsection{CT-Based Model}
+\subsubsection{Architecture}
+\subsubsection{Input Processing}
+
+\subsection{Dynamic PET-Based Model}
+\subsubsection{Architecture}
+\subsubsection{Input Processing}
+
+\section{Training and Optimization}
+\subsection{Loss Functions}
+\subsection{Hyperparameter Tuning}
+\subsection{Hardware and Software Setup}
+
+\section{Evaluation Metrics}
+[Describe the metrics used to assess model performance]

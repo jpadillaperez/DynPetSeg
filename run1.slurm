@@ -28,16 +28,22 @@ export WANDB_API_KEY=$(cat ./wandb_api_key.txt)
 conda deactivate # If you launch your script from a terminal where your environment is already loaded, conda won't activate the environment. This guards against that. Not necessary if you always run this script from a clean terminal
 conda activate DynPet
 
-#Declare variable for kinetic checkpoint
-#3 Patients
-#KINETIC_CKPT=/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/lucky-firefly-685/epoch=129-step=164840.ckpt
-#All Patients
-#KINETIC_CKPT=/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/glorious-flower-706/epoch=99-step=416000.ckpt
-#All Patients just liver seg slices
-#KINETIC_CKPT=/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/young-lion-183/epoch=79-step=58800.ckpt
+if [ "$MODE" = "train" ]; then
+    #3 Patients Full Body
+    #KINETIC_CKPT=/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/Kinetics_full_body/lucky-firefly-685/epoch=129-step=164840.ckpt
+    #All Patients Full Body
+    #KINETIC_CKPT=/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/Kinetics_full_body/glorious-flower-706/epoch=99-step=416000.ckpt
+    #All Patients Size 192
+    KINETIC_CKPT=/home/guests/jorge_padilla/code/DynamicPET_Segmentation/ckpts/Kinetics_192/proud-snow-610/epoch=64-step=22555.ckpt
 
-# Run the script
-#python -u ./main.py --experiment seg1 --modality train --kinetic_ckpt $KINETIC_CKPT
-python -u ./main.py --experiment seg1 --modality train
+    # Run the script
+    python -u ./main.py --experiment seg1 --modality train --kinetic_ckpt $KINETIC_CKPT
+
+elif [ "$MODE" = "test" ]; then
+    #CKPT=...
+
+    # Run the script in test mode
+    python -u ./main.py --experiment seg1 --modality test --ckpt $CKPT
+fi
 
 conda deactivate

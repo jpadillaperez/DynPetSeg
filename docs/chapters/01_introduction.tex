@@ -1,0 +1,372 @@
+% !TeX root = ../main.tex
+% !TeX root = ../main.tex
+% Add the above to each chapter to make compiling the PDF easier in some editors.
+
+\chapter{Introduction}\label{chapter:introduction}
+
+\section{Background}
+
+\subsection{Dynamic PET Imaging}
+
+Dynamic PET (dPET) is a functional imaging technique that involves the  continuous acquisition of a PET scan over continuous time steps at a constant rate, allowing the analysis of the metabolic behavior of diseases based on the diffusion of contrast agents varying depending on the type of tissue, metabolic activity and metabolic pathway associated to the radio tracer used. This capability opens the possibility of a more accurate diagnosis by considering the dynamic profile of each scan.
+
+Long Axial Field of View PET (LAFOV PET) is an advanced physiological imaging technique that increases the field of view of a single scan, enhancing the capabilities of PET. Compared to traditional PET scans of 15-25 cm, LAFOV PET allows for a whole body scan covering up to 2 meters range [CITATION]. In addition, the sensitivity and resolution is increased compared to standard PETs by using a more advanced detector technology that allows a lower radiation dose and a faster scanning time.
+
+The increase in sensitivity and accuracy of LAFOV PET allows the analysis of concentrations of contrast agents within a region, organ, or even voxel, as a function of time, thus providing more detailed information beneficial for monitoring disease progression and treatment analysis.
+
+Time activity curves (TAC) are a graphical representation of the activity of a radiotracer during time in a specified region. It’s crucial for the understanding of the pharmacokinetics of a radiotracer within the physiological processes occurring in the tissue, by tracing radiotracer intake, distribution and elimination rate. The key phases of a TAC include:
+
+\begin{itemize}
+    \item \textbf{Uptake phase}: initial phase where concentrations increase since the tracer is being administered and absorbed by the tissue.
+    \item \textbf{Plateau phase}: phase of equilibrium, where concentration of tracer is stable within the tissue.
+    \item \textbf{Washout phase}: phase of decreasing concentration of radiotracer due to its elimination or by being metabolized by the tissue.
+\end{itemize}
+
+[FIGURE TAC]
+
+TACs are useful for the evaluation of tumor metabolism and its association with the response to therapy, as well as for studying brain metabolism or myocardial perfusion, among other study cases in the medical domain.
+
+The measurement of tracer kinetic over time enables the quantitative analysis of metabolic rate, blood flow and receptor binding, which can be used for the early diagnosis of cancer, neurological and cardiovascular diseases. The temporal changes in tracer distribution can reveal significant changes in the tissue, like tumor activity or inflammatory responses.
+
+[CITATIONS]
+
+
+\subsection{Tissue Compartment Models}
+
+Tissue compartment models are mathematical models that study the movement of a substance (contrast agent) through body tissues. The three most famous models are the one-tissue compartment model (1-TCM) the two-tissue compartment model (2-TCM) and the three-tissue compartment model (3-TCM).
+
+[MORE INFO ON DIFFERENCES]
+
+These models are most effective for certain organs [RESEARCH ABOUT THIS]. Ideally, each organ would have distinct kinetic parameters [CITATIONS]. For example, a tumor might have a high K1 and a low k2 for contrast of fluorescence.
+
+It is often beneficial to use different compartment models for different organs. For instance, the liver may be better represented by the three-tissue compartment model, while the lungs might be better suited to the two-tissue model.
+
+[MORE INFO DIFFERENCES]
+
+\subsection{One-Tissue Compartment Model}
+
+This model provides a simplified yet effective framework for understanding the distribution and kinetics of tracers within biological tissues. The 1TCM assumes that the tracer can be described by two primary compartments: the plasma compartment ($C_p$) and the tissue compartment ($Ct$).
+
+\begin{figure} [h]
+\begin{center}
+\begin{tikzpicture}
+    % Define the styles for the compartments and arrows
+    \tikzstyle{compartment} = [draw, rectangle, minimum height=2cm, minimum width=2.5cm, text centered, font=\large]
+    \tikzstyle{arrow} = [thick, ->, >=Stealth]
+    \tikzstyle{box} = [draw, rectangle, dashed, inner sep=0.3cm, minimum width=5.5cm]
+
+    % Draw the compartments
+    \node[compartment] (C0) {$C_p$};
+    \node[compartment, right=of C0] (C1) {$C_t$};
+
+    % Define coordinate nodes for better control
+    \coordinate (C0-east-up) at ([yshift=0.3cm]C0.east);
+    \coordinate (C0-east-down) at ([yshift=-0.3cm]C0.east);
+    \coordinate (C1-west-up) at ([yshift=0.3cm]C1.west);
+    \coordinate (C1-west-down) at ([yshift=-0.3cm]C1.west);
+
+    % Draw the arrows with vertical separation
+    \draw[arrow] (C0-east-up) -- node[above] {$k_1$} (C1-west-up);
+    \draw[arrow] (C1-west-down) -- node[below] {$k_2$} (C0-east-down);
+    
+    % Draw the outer dashed box
+    \node[box, fit=(C1)] {};
+    
+\end{tikzpicture}
+\end{center}
+\caption{Diagram representing one-tissue compartment model.}
+\end{figure}[h]
+
+\begin{equation}
+\frac{dC_t(t)}{dt} = K_1 C_p(t) - k_2 C_t(t)
+\end{equation}
+
+Where:
+\begin{itemize}
+    \item $k_1$ [ml/cm$^3$/min] is the rate constant for the tracer entering the tissue from the blood (inflow rate).
+    \item $k_2$ [1/min] is the rate constant for the tracer leaving the tissue back to the blood (outflow rate).
+    \item $C_p(t)$ is the tracer concentration in the plasma.
+    \item $C_t(t)$ is the tracer concentration in the tissue.
+\end{itemize}
+
+\subsubsection{Two-Tissue Compartment Model}
+
+The two-tissue compartment model (2TCM) is a widely used kinetic model in the field of PET imaging and radiopharmaceutical studies. It provides a more detailed representation of tracer kinetics compared to the simpler one-tissue compartment model, making it suitable for a variety of clinical and research applications.
+
+The calculation of this model implies four different kinetic parameters.
+
+\begin{figure} [h]
+\begin{center}
+\begin{tikzpicture}
+    % Define the styles for the compartments and arrows
+    \tikzstyle{compartment} = [draw, rectangle, minimum height=2cm, minimum width=2.5cm, text centered, font=\large]
+    \tikzstyle{arrow} = [thick, ->, >=Stealth]
+    \tikzstyle{box} = [draw, rectangle, dashed, inner sep=0.3cm, minimum width=9cm]
+
+    % Draw the compartments
+    \node[compartment] (C0) {$C_p$};
+    \node[compartment, right=of C0] (C1) {$C_1$};
+    \node[compartment, right=of C1] (C2) {$C_2$};
+    
+    % Define coordinate nodes for better control
+    \coordinate (C0-east-up) at ([yshift=0.3cm]C0.east);
+    \coordinate (C0-east-down) at ([yshift=-0.3cm]C0.east);
+    \coordinate (C1-west-up) at ([yshift=0.3cm]C1.west);
+    \coordinate (C1-west-down) at ([yshift=-0.3cm]C1.west);
+    \coordinate (C1-east-up) at ([yshift=0.3cm]C1.east);
+    \coordinate (C1-east-down) at ([yshift=-0.3cm]C1.east);
+    \coordinate (C2-west-up) at ([yshift=0.3cm]C2.west);
+    \coordinate (C2-west-down) at ([yshift=-0.3cm]C2.west);
+
+    % Draw the arrows with vertical separation
+    \draw[arrow] (C0-east-up) -- node[above] {$k_1$} (C1-west-up);
+    \draw[arrow] (C1-west-down) -- node[below] {$k_2$} (C0-east-down);
+    \draw[arrow] (C1-east-up) -- node[above] {$k_3$} (C2-west-up);
+    \draw[arrow] (C2-west-down) -- node[below] {$k_4$} (C1-east-down);
+    
+    
+    % Draw the outer dashed box
+    \node[box, fit=(C1)(C2)] {};
+    
+\end{tikzpicture}
+\end{center}
+\caption{Diagram representing two-tissue compartment model.}
+\end{figure}
+
+
+\begin{equation}
+\frac{dC_1(t)}{dt} = K_1 C_p(t) - (k_2 + k_3) C_1(t) + k_4 C_2(t)
+\end{equation}
+
+\begin{equation}
+\frac{dC_2(t)}{dt} = k_3 C_1(t) - k_4 C_2(t)
+\end{equation}
+
+Where:
+\begin{itemize}
+    \item $k_1$ [ml/cm$^3$/min] is the rate constant for the tracer entering the first compartment from the blood. A higher $k_1$ value suggests a higher uptake of tracer by the tissue rate. This is particularly useful for detecting areas of high metabolic activity like tumors.
+    \item $k_2$ [1/min] is the rate constant for the tracer leaving the first compartment to the blood.
+    \item $k_3$ [1/min] is the rate constant for the tracer moving from the first to the second compartment.
+    \item $k_4$ [1/min] is the rate constant for the tracer moving from the second compartment back to the first. Usually for the case of FDG $k_4$ is set to zero, as it is [CITATION 20 FRANCESCA] assumed that once the tracer enters the tissue, it does not exit it back to the blood in an irreversible manner to simplify the calculus.
+    \item $C_p(t)$ is the tracer concentration in the plasma.
+    \item $C_1(t)$ is the tracer concentration in the first tissue compartment (free tracer).
+    \item $C_2(t)$ is the tracer concentration in the second tissue compartment (bound tracer).
+\end{itemize}
+
+
+Often a $5^{th}$ kinetic parameter representing the blood fraction volume ($V_B$) [$\cdot$] is taken into account [CITATION 17 FRANCESCA] to accurately calculate radioactivity of a voxel due to blood vessels smaller than the resolution of the PET scan.
+
+This model is better suited for tracers like fluorodeoxyglucose (FDG) -and in general for any tracer with free and bound states-, since it undergoes phosphorylation and therefore, it could not be correctly modeled with a one tissue compartment model.
+
+\subsubsection{Three-Tissue Compartment Model}
+
+The three-tissue compartment model (3TCM) is an advanced kinetic model that provides a more detailed understanding of tracer dynamics within biological tissues. This model was first introduced to focus on the complex interactions between different tissue types and the tracer. 
+
+The 3TCM extends the two-tissue compartment model by adding an additional compartment, allowing for a more comprehensive representation of tracer kinetics. This model is particularly useful for tracers that bind to multiple receptor sites or undergo complex metabolic processes.
+
+\begin{figure} [h]
+\begin{center}
+\begin{tikzpicture}
+    % Define the styles for the compartments and arrows
+    \tikzstyle{compartment} = [draw, rectangle, minimum height=2cm, minimum width=2.5cm, text centered, font=\large]
+    \tikzstyle{arrow} = [thick, ->, >=Stealth]
+    \tikzstyle{box} = [draw, rectangle, dashed, inner sep=0.3cm, minimum width=9cm]
+
+    % Draw the compartments
+    \node[compartment] (C0) {$C_P$};
+    \node[compartment, right=of C0] (C1) {$C_1$};
+    \node[compartment, right=of C1] (C2) {$C_2$};
+    \node[compartment, below=of C1] (C3) {$C_3$};
+    
+    % Draw the arrows with vertical separation
+    \draw[arrow] (C0.east) -- node[above] {$k_1$} (C1.west);
+    \draw[arrow] (C1.west) -- node[below] {$k_2$} (C0.east);
+    \draw[arrow] (C1.east) -- node[above] {$k_3$} (C2.west);
+    \draw[arrow] (C2.west) -- node[below] {$k_4$} (C1.east);
+    \draw[arrow] (C1.south) -- node[right] {$k_6$} (C3.north);
+    \draw[arrow] (C3.north) -- node[left] {$k_5$} (C1.south);
+    
+    % Draw the outer dashed box with extended horizontal size
+    \node[box, fit=(C3)(C1)(C2)] {};
+    
+\end{tikzpicture}
+\end{center}
+\caption{Diagram representing three-tissue compartment model.}
+\end{figure}
+
+
+\begin{equation}
+\frac{dC_1(t)}{dt} = K_1 C_p(t) - (k_2 + k_3) C_1(t) + k_4 C_2(t) + k_6 C_3(t)
+\end{equation}
+
+\begin{equation}
+\frac{dC_2(t)}{dt} = k_3 C_1(t) - (k_4 + k_5) C_2(t) + k_7 C_3(t)
+\end{equation}
+
+\begin{equation}
+\frac{dC_3(t)}{dt} = k_5 C_2(t) - (k_6 + k_7) C_3(t)
+\end{equation}
+
+\begin{itemize}
+    \item $k_1$ [ml/cm$^3$/min] is the rate constant for the tracer entering the first compartment from the blood.
+    \item $k_2$ [1/min] is the rate constant for the tracer leaving the first compartment to the blood.
+    \item $k_3$ [1/min] is the rate constant for the tracer moving from the first to the second compartment.
+    \item $k_4$ [1/min] is the rate constant for the tracer moving from the second compartment back to the first.
+    \item $k_5$ [1/min] is the rate constant for the tracer moving from the second to the third compartment.
+    \item $k_6$ [1/min] is the rate constant for the tracer moving from the third compartment back to the first.
+    \item $k_7$ [1/min] is the rate constant for the tracer moving from the third compartment back to the second.
+    \item $C_p(t)$ is the tracer concentration in the plasma.
+    \item $C_1(t)$ is the tracer concentration in the first tissue compartment (free tracer).
+    \item $C_2(t)$ is the tracer concentration in the second tissue compartment (nonspecific binding).
+    \item $C_3(t)$ is the tracer concentration in the third tissue compartment (specific binding).
+\end{itemize}
+
+
+The additional parameters make this model more computationally expensive, but useful for modelling complex interactions between the tissue and the tracer that involves multiple binding states.
+
+It is beneficial to use different compartment models for different organs depending on the interaction with radiotracers taken place. For example, in the case of FDG, the liver, the lungs, and the skeletal muscle could be easily modeled by 1TCM since almost not interaction occurs there with the tracers, while brain or heart would need 2TCM and highly vascularized tumours might be better modeled using 3TCM.
+
+Beyond the traditional 1TCM, 2TCM, and 3TCM, there are various advanced kinetic models designed to address specific complexities in tracer behavior and physiological processes. These models include the four-tissue compartment model (4TCM), graphical analysis methods like the Patlak model and Logan plot, non-compartmental approaches such as spectral analysis, and models with time-varying kinetic parameter. Each model offers unique advantages for accurately capturing and analyzing tracer kinetics in different clinical contexts. 
+
+[CITATIONS]
+
+\subsection{Kinetic Parametric Imaging}
+
+In dynamic PET (dPET) imaging, estimating kinetic parameters accurately is crucial for understanding the distribution and behavior of radiotracers. The use of high-sensitivity PET techniques, selecting appropriate models and employing advanced computational techniques is crucial to determine the kinetic parameters.
+
+\begin{figure}[h]
+    \centering
+    \caption{Kinetic Imaging Per Organ and Per Voxel}
+    \label{fig:kinetic_imaging}
+\end{figure}
+
+The steps to calculate such images include:
+
+\begin{enumerate}
+    \item Data acquisition: High-quality PET, but can also include contrast MRI, SPECT, contrast CT, etc.
+    \item Estimation or measurement of the Arterial Input Function, representing the amount of contrast administered to the patient throughout the imaging procedure.
+    \item Selection of the appropriate compartment model (1TCM, 2TCM, 3TCM) based on the clinical case, chosen radiotracer and organs studied.
+    \item Parameter estimation through nonlinear regression techniques.
+\end{enumerate}
+
+Some of the most well-known estimation methods for tissue compartment models are the following:
+
+\subsubsection{Graphical Analysis Techniques}
+\begin{itemize}
+    \item Patlak Plot: Used for tracers that are irreversibly trapped within the tissue. It linearizes the relationship between tracer uptake and time, providing a slope that represents the influx rate of the tracer.
+    \item Logan Plot: Suitable for reversible tracers. It provides a linear relationship allowing the estimation of the distribution volume or binding potential.
+\end{itemize}
+
+\subsubsection{Nonlinear Regression Techniques}
+\begin{itemize}
+    \item Levenberg-Marquardt Algorithm: An iterative method used to minimize the residual sum of squares between the measured and modeled tracer concentrations. This algorithm is effective for fitting nonlinear compartment models.
+    \item Separable Nonlinear Least Squares (SNLS): Separates the estimation of linear and nonlinear parameters to improve computational efficiency. This method is used for models where some parameters have a linear relationship with the observed data.
+\end{itemize}
+
+\subsubsection{Direct Reconstruction Techniques}
+\begin{itemize}
+    \item Maximum Likelihood Expectation-Maximization (ML-EM): A statistical method that iteratively estimates kinetic parameters directly from the projection data, ensuring accurate noise modeling.
+    \item Penalized Likelihood (PL) Methods: Incorporate regularization terms to penalize deviations from smoothness, thus reducing noise and improving the stability of parameter estimates.
+    \item Parametric Iterative Coordinate Descent (PICD): An algorithm that transforms rate constants into auxiliary parameters for easier estimation. This method is particularly suited for one- and two-tissue compartment models.
+\end{itemize}
+
+\subsubsection{Optimization Transfer Algorithms}
+\begin{itemize}
+    \item Nested EM Algorithm: Improves convergence rates by decoupling spatial and temporal updates during each iteration. This approach is advantageous for large-scale parametric reconstructions.
+    \item Optimization Transfer using Separable Paraboloids (OT-SP): Decouples pixel correlations in the surrogate function, facilitating parallel computation and ensuring monotonic convergence.
+\end{itemize}
+
+\subsubsection{Bayesian Methods}
+\begin{itemize}
+    \item Bayesian Estimation: Incorporates prior knowledge and uncertainty into the estimation process. It provides robust parameter estimates, especially useful in the presence of noisy data.
+\end{itemize}
+
+\subsubsection{Spectral Analysis}
+Uses a set of pre-determined exponential functions convolved with the input function to model the tracer kinetics. This method provides a distribution volume for reversible tracers directly from the spectral coefficients.
+
+[FIGURE COMPARING RECONSTRUCTION TECHNIQUES RESULTS AT CERTAIN ITERATION AND COMPUTATIONAL TIME, SPECIALLY PICD, PENALIZED LEAST SQUARES, SEPARABLE LEAST SQUARES]
+
+
+A major challenge with these regression techniques is the significant computational power and time required. [WRITE MORE HERE]
+
+\begin{figure}[h]
+    \centering
+    \caption{Computational Time Taken}
+    \label{fig:computational_time}
+\end{figure}
+
+
+\section{Related Work}
+
+Dynamic Positron Emission Tomography (PET) imaging has experienced significant advancements in recent years, particularly with the development of LAFOV PET systems and innovative data processing techniques. These improvements have substantially enhanced the capabilities of PET imaging, offering higher sensitivity, improved specificity, and more efficient data acquisition and analysis. This section explores the key developments in LAFOV PET systems, their clinical applications in oncology, and the evolution of kinetic modeling techniques. Additionally, we examine the emerging role of self-supervised learning in enhancing dynamic PET imaging, focusing on recent breakthroughs in computational efficiency and accuracy. These advancements collectively contribute to more precise disease monitoring, reduced patient radiation exposure, and improved diagnostic capabilities across various medical fields.
+\subsection{Advances in Dynamic PET Imaging}
+
+Dynamic PET imaging has undergone significant advancements, particularly with the introduction of total-body PET systems featuring long axial field-of-view (LAFOV). Surti et al. (2020) \cite{surti2020} provided a comprehensive overview of these developments in their seminal paper ``Total Body PET: Why, How, What for?'', emphasizing the transformative potential of LAFOV PET systems in clinical and research applications.
+
+The authors highlight that the extended field of view in total-body PET systems dramatically enhances sensitivity - a crucial parameter in PET imaging that determines the system's ability to detect and quantify radiotracers. This increased sensitivity is primarily attributed to the larger geometric coverage and the higher number of detectors, enabling more efficient capture of emitted photons from the entire body simultaneously.
+
+Surti and colleagues report that total-body PET systems demonstrate a sensitivity improvement of up to 40 times compared to conventional PET scanners. This substantial increase allows for either a significant reduction in radiotracer dose or scan time, or a combination of both, while maintaining or even improving image quality. The practical implications of this enhanced sensitivity are profound, enabling the detection of smaller lesions and subtle pathological changes, which is vital for early diagnosis and precise monitoring of diseases such as cancer.
+
+The paper also discusses improvements in image quality and quantitative accuracy. The advanced detector technology and image reconstruction methods used in total-body PET systems provide higher spatial resolution, typically in the range of 3 to 4 mm. This improvement allows for clearer differentiation between healthy and diseased tissues, enhancing the specificity of PET imaging - the ability to distinguish between different types of tissues and pathological conditions.
+
+\subsubsection{Clinical and Research Applications}
+
+Surti et al. \cite{surti2020} elaborate on the wide-ranging clinical and research applications of total-body PET. The improved sensitivity and image quality offer significant benefits in oncology, including more accurate disease staging, enhanced ability to monitor treatment response, and the potential for earlier detection of recurrences. In pharmacokinetic studies, the ability to simultaneously image the entire body opens new possibilities for understanding drug distribution and metabolism.
+The authors also highlight the potential of total-body PET in expanding the use of short-lived radiotracers and enabling novel research into systemic diseases and multi-organ interactions. The increased efficiency not only improves patient comfort and safety through reduced scan times and radiation exposure but also marks a crucial step forward in PET imaging technology.
+In conclusion, the work of Surti, Pantel, and Karp underscores how the evolution in total-body PET imaging provides clinicians and researchers with a more comprehensive and accurate diagnostic and investigative tool, ultimately enhancing disease management and our understanding of human physiology across various medical conditions.
+
+
+\subsection{LAFOV PET-CT in Oncological Studies}
+
+Dimitrakopoulou-Strauss et al. (2023) ~\cite{dimitrakopoulou2023} conducted a comprehensive study on the implementation of long axial field of view (LAFOV) PET-CT in both static and dynamic oncological imaging. Their research, titled "Long axial field of view (LAFOV) PET-CT: implementation in static and dynamic oncological studies," provides valuable insights into the clinical applications and potential benefits of this advanced imaging technology.
+The study focused on evaluating the diagnostic performance of LAFOV PET-CT and determining optimal acquisition times in a clinical oncology setting. The researchers employed a Biograph Vision Quadra PET/CT system, which features an extended axial field of view, to scan 49 melanoma patients. They used a low-dose protocol of 2 MBq/kg [18F]-FDG, capitalizing on the increased sensitivity of the LAFOV system.
+
+A key aspect of the study was the assessment of image quality and diagnostic accuracy across various acquisition times. The researchers initially acquired PET data over a 10-minute period and then reconstructed images for shorter durations (8, 6, 5, 4, and 2 minutes). This approach allowed them to evaluate the trade-offs between scan time, image quality, and diagnostic performance.
+
+One of the most significant findings was that a 5-minute static acquisition of the torso provided diagnostic quality comparable to standard longer acquisition times. This result has important implications for clinical practice, suggesting that shorter scan times can be implemented without compromising diagnostic accuracy. While the researchers observed a decrease in liver signal-to-noise ratio (SNR) and tumor-to-background ratio (TBR) with reduced acquisition times, the diagnostic performance remained clinically acceptable.
+
+The study also highlighted several practical benefits of shorter acquisition times, including improved patient comfort and a reduced likelihood of motion artifacts. These factors are particularly crucial for accurate estimation of kinetic parameters in dynamic studies.
+Dimitrakopoulou-Strauss et al. emphasized the potential of LAFOV PET-CT to increase patient throughput in clinical settings. The ability to perform shorter scans without sacrificing diagnostic quality means that imaging departments can potentially scan more patients in the same timeframe, enhancing overall efficiency.
+
+Moreover, the research underscored the dosimetric advantages of LAFOV PET-CT systems. The enhanced sensitivity of these systems allows for the administration of lower radiation doses to patients, an important consideration in oncological imaging where patients often undergo multiple scans over the course of their treatment.
+
+The study also highlighted the value of LAFOV PET-CT in treatment monitoring. The combination of enhanced sensitivity and reduced acquisition times makes this technology particularly well-suited for assessing treatment response in oncology patients.
+
+In conclusion, the work of Dimitrakopoulou-Strauss et al. provides strong evidence for the clinical benefits of LAFOV PET-CT in oncological applications. Their findings support the use of shorter acquisition times without compromising diagnostic accuracy, pointing to the potential for increased patient throughput and improved patient comfort. These advancements represent a significant step forward in the field of oncological imaging, contributing to more efficient and effective disease monitoring and treatment planning in clinical practice.
+
+\subsection{Kinetic Modeling and Direct Reconstruction in PET Imaging}
+
+Kamasak et al.~\cite{kamasak2005} made a significant contribution to the field of kinetic modeling in PET imaging by introducing a novel method for direct reconstruction of kinetic parameter images from dynamic PET data. Their research focused on developing and implementing an efficient algorithm called Parametric Iterative Coordinate Descent (PICD) for direct voxel-wise reconstruction of kinetic parameter images.
+The PICD algorithm addresses several key challenges in kinetic parameter estimation:
+\begin{enumerate}
+\item \textbf{Direct Estimation:} Unlike traditional indirect methods that first reconstruct activity images and then estimate kinetic parameters, PICD directly estimates the optimal kinetic parameters from sinogram data. This approach potentially reduces errors associated with multi-step processes.
+\item \textbf{Computational Efficiency:} The authors demonstrated that PICD has computational requirements similar to conventional two-step approaches of iterative reconstruction followed by kinetic parameter estimation. This efficiency is achieved through the use of state variables and nested optimization to decouple nonlinearities in the forward tomographic model, kinetic model, and Bayesian prior model.
+
+\item \textbf{Bayesian Framework:} PICD is formulated within a Bayesian framework, allowing for spatial regularization in the domain of physiologically relevant parameters. This approach can lead to more robust parameter estimates.
+
+\item \textbf{Flexibility in Parameter Space:} The algorithm is designed to compute the MAP estimate of kinetic parameters using a prior distribution defined on any well-behaved transformation of the parameter space. This allows regularization to be applied to parameters deemed physiologically important.
+
+\item \textbf{Improved Accuracy:} Simulation results presented in the paper indicated that PICD-generated parametric reconstructions had lower mean squared error and better visual quality than the best indirect methods.
+\end{enumerate}
+The work of Kamasak et al. represents a significant advancement in kinetic modeling for PET imaging, offering a method that potentially improves both the efficiency and accuracy of parameter estimation. This approach could have important implications for clinical applications, particularly in fields requiring detailed quantitative analysis such as oncology, neurology, and cardiology, by providing more reliable diagnostic information from PET scans.
+
+
+
+
+
+\subsection{Self-Supervised Learning for Kinetic Imaging in Dynamic PET}
+The field of dynamic Positron Emission Tomography (PET) imaging has seen significant advancements with the application of self-supervised learning techniques, particularly in the development of physiologically-based pharmacokinetic models. A notable contribution in this area comes from De Benetti et al.~\cite{debenetti2023}, who introduced a novel approach to enhance kinetic imaging in dynamic PET using self-supervised learning.
+
+At the core of De Benetti et al.'s research is a spatio-temporal UNet architecture designed to generate kinetic parameter images directly from dynamic PET data. This innovative approach addresses the computational challenges associated with traditional kinetic modeling techniques by efficiently transforming dynamic PET data into meaningful kinetic parameter images. The UNet architecture, known for its effectiveness in image segmentation tasks, is adapted here to capture both spatial and temporal dynamics of radiotracer distribution, resulting in accurate estimations of key kinetic parameters.
+
+The study focuses on estimating four critical kinetic parameters: $K_1$ (rate constant for tracer influx), $k_2$ (rate constant for tracer efflux), $k_3$ (rate constant for tracer binding), and $V_B$ (blood volume fraction). These parameters are fundamental to understanding the pharmacokinetics of radiotracers within tissues and are crucial for accurate interpretation of PET imaging data.
+One of the key strengths of De Benetti et al.'s approach is its versatility in implementing both irreversible and reversible 2-Tissue-Compartment (2TC) models. The study demonstrated that the reversible 2TC model slightly outperformed the irreversible model, achieving a Coefficient of Similarity (CS) of 0.7931. This flexibility allows for more accurate modeling of various tracer behaviors, potentially expanding the applicability of the method across different radiotracers and physiological conditions.
+
+The research utilized a robust dataset comprising 23 oncological patients, employing 18F-FDG as the tracer and a state-of-the-art Biograph Vision Quadra LAFOV PET scanner. This comprehensive dataset allowed for thorough validation of the proposed method under clinically relevant conditions. The study also incorporated innovative features such as accounting for input function delay and implementing loss function weighting, further enhancing the model's accuracy and robustness.
+
+A significant advantage of this self-supervised learning approach is its elimination of the need for manually labeled training data, which has traditionally been a bottleneck in supervised learning approaches. This results in faster and more scalable processing of dynamic PET data, making it particularly suitable for clinical applications where timely results are critical. Despite this increased efficiency, the model maintains accuracy levels comparable to traditional compartment models, striking a balance that is essential for clinical adoption.
+
+The clinical implications of this research are far-reaching. In oncology, the improved efficiency and accuracy in kinetic parameter estimation can lead to better assessment of tumor metabolism and more precise monitoring of treatment responses. Beyond oncology, the technique shows promise in fields such as neurology and cardiology, where detailed kinetic analysis of radiotracer distribution is crucial for understanding complex disease mechanisms and progression.
+
+De Benetti et al.'s work also opens up new avenues for future research. The success of their approach in implementing both irreversible and reversible 2TC models suggests potential for exploring even more complex kinetic models. There's also scope for integrating this technique with other imaging modalities and expanding its application to a wider range of radiotracers and clinical scenarios.
+In conclusion, the advancements in self-supervised learning for kinetic imaging demonstrated by De Benetti et al. represent a significant leap forward in the field of dynamic PET imaging. By enhancing both the efficiency and accuracy of kinetic parameter estimation, their work not only improves current clinical applications but also broadens the potential uses of PET imaging in medical practice. As this technology continues to evolve, it promises to play an increasingly important role in personalized medicine, offering more precise and timely insights into physiological processes and disease states.

@@ -1,0 +1,60 @@
+% !TeX root = ../main.tex
+% !TeX root = ../main.tex
+% Add the above to each chapter to make compiling the PDF easier in some editors.
+
+\chapter{Materials}\label{chapter:materials}
+This chapter outlines the dataset, preprocessing steps, and computational resources used in our study, which builds upon the work of De Benetti et al. \cite{debenetti2023} in dynamic PET imaging.
+
+\section{Dataset}
+Our study utilizes a dataset comprising dynamic PET scans from 23 oncological patients with diverse tumor types, identical to that used by De Benetti et al. The imaging was performed using a Biograph Vision Quadra PET/CT scanner over a 65-minute duration, segmented into 62 frames with varying exposure times: 2 × 10 seconds, 30 × 2 seconds, 4 × 10 seconds, 8 × 30 seconds, 4 × 60 seconds, 5 × 120 seconds, and 9 × 300 seconds.
+
+PET volumes were initially reconstructed with an isotropic voxel size of 1.6 mm and subsequently resampled to 2.5 mm for our analysis. The dataset includes label maps for seven organs (bones, lungs, heart, liver, kidneys, spleen, and aorta) and an image-derived input function from the descending aorta for each patient.
+
+For our study, the dataset was partitioned into training (10 patients), validation (4 patients), and test (9 patients) sets.
+
+[IMAGES OF DATASET]
+
+\section{Data Preprocessing}
+Our preprocessing pipeline involved several key steps to prepare the data for model input:
+
+\subsection{Image Preprocessing}
+We applied consistent preprocessing to CT scans (used in baseline models), dynamic PET scans, and segmentations:
+\begin{enumerate}
+    \item The image-derived input function was interpolated.
+    \item Unlike the original model by De Benetti et al., which used a bounding box to select the region of interest, we utilized the whole-body CT scan as input for our models.
+    \item We employed a patch size of 192 in the axial direction, the closest multiple of $2^6$ that accommodates the entire body while cropping empty space.
+    \item All scans were normalized to the same spatial and temporal dimensions.
+    \item PET image values were converted from Bq/ml to kBq/ml.
+    \item For the training of our models, we specifically selected non-empty dPET axial slices to ensure efficient use of computational resources and focus on relevant image data.
+\end{enumerate}
+
+\subsection{Segmentation Masks and Post-processing}
+Multiple segmentation masks were acquired using TotalSegmentator [CITATION]. For our project, we focused on four key segmentations: liver, kidneys, vessels, and aorta. The vessel segmentation mask encompassed major blood vessels including the brachiocephalic trunk, brachiocephalic vein, carotid arteries, pulmonary arteries and veins, subclavian arteries, vena cava, and the heart's atriums and ventricles. We separated the aorta from this vessel segmentation to evaluate performance on a single vessel.
+
+To improve the quality of our ground truth data, we applied several post-processing steps:
+
+\begin{enumerate}
+    \item For organs like the liver and kidneys, we retained only the largest connected component to eliminate potential errors from TotalSegmentator.
+    \item Individual analysis and manual editing of each segmentation were performed to enhance ground truth quality.
+\end{enumerate}
+
+
+\subsection{Data Storage}
+The processed data was stored in a structured format to facilitate easy retrieval during the training phase.
+
+\section{Software Tools and Hardware Infrastructure}
+Our study employs several key software tools and libraries, including Python as the primary programming language for model development and data analysis. Specifically, we used the following software versions:
+
+\begin{itemize}
+    \item PyTorch 2.0.1 with CUDA 11.8 for building and training neural network models
+    \item PyTorch Lightning 2.1.3 for distributed training and scaling our models across multiple GPUs
+    \item Torchmetrics 1.3.1 for model evaluation
+    \item Nibabel 5.2.0 for handling PET-CT and label data
+    \item MONAI 1.3.0 for instantiating the backbone of most of our well-established and baseline models
+\end{itemize}
+
+We also utilized Weights \& Biases for hyperparameter optimization and experiment tracking, and Imfusion for visualization of PET and CT images.
+
+The core of our model builds upon the codebase developed by De Benetti et al., which implements a spatiotemporal UNet architecture designed to estimate kinetic parameters from dynamic PET data. This model has been adapted to incorporate segmentation tasks, leveraging TotalSegmentator for CT scan segmentations to provide accurate anatomical context.
+
+For our computational needs, we utilized two NVIDIA A100 GPUs in parallel, each equipped with 50GB of VRAM. This high-performance setup enabled efficient training and inference of our complex deep learning models, particularly beneficial for processing the large-scale, multi-dimensional dynamic PET data. To effectively utilize the two GPUs in parallel, we carefully implemented the functionality of PyTorch Lightning, which provided a robust framework for distributed training and simplified the process of scaling our models across multiple GPUs.

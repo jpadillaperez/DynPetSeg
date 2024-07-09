@@ -1,123 +1,29 @@
-# Architecture
-overfit:
+experiment:
+  value: "adaptation3"
+
+freeze_kin:
   value: False
+
+alternate_training:
+  value: True
   
-use_spatio_temporal_unet: #Convolution:: true -> Spatio-temporal, false -> 3D
-  value: True
+loss_combination:
+  value: "weighted_sum"
 
-model_depth:
-  value: 4
-
-max_pool_time: #Pooling:: true -> 3D, false -> Space
-  value: True
-
-final_activation: #Final activation:: multi_clamp, clamp, absolute
-  value: "multi_clamp" 
-
-activation:
-  value:  "ELU" #TODO: Add GELU
-
-bounding_box:
-  value: False
-
-weight_init:
-  value: None # Options: kaiming, xavier, None
-
-patch_size:
-  value: 256
-
-# Dataset
-patient_list:
-  value:  {
-          #DONE: Use debugging training list for sweep
-          #"train": ["01"],
-          #"validation": ["01"],
-          "train": ["01", "07", "06", "10", "15", "19", "21", "23", "27", "29"],
-          #"train": ["01", "07", "06"],
-          "validation": ["14", "17", "18"],
-          #"validation": ["18", "17"],
-          #"validation": ["14"],
-          "test": ["28", "08", "09", "20", "24", "25", "26", "03"]
-        }
-
-segmentation_list:
-  value: ["liver"]
-  #value: ["brain", "liver"]
-  #value: ["brain", "liver", "pancreas"]
-  #value: ["brain", "liver", "pancreas", "lung"]
-  #value: ["brain", "liver", "pancreas", "lung", "heart"]
-
-segmentation_postprocessing:
-  value: True
+rescaling_factor_kinetic_loss:
+  value: 1000
 
 remove_slices_without_segmentation:
-  value: True
-
-# Should be: 
-# - "all" if all the slices must be included
-# - "no_legs" if the legs must be excluded
-
-slices_per_patient_train:         
-  value: "all"
-
-slices_per_patient_val:
-  value: "all"
-
-slices_per_patient_test:
-  value: "all"
-
-# Training options
-epochs: 
-  value: 600
-
-batch_norm: 
   value: False
 
-batch_norm_seg:
+inverse_segmentations:
   value: False
-
-learning_rate:
-  value: 0.001 #0.0001 
 
 batch_size: 
-  value: 2
+  value: 4
 
-lr_scheduler:
-  value: "ReduceLROnPlateau" # Options: CosineAnnealingLR, MultiStepLR, ReduceLROnPlateau
-reduce_monitor:
-  value: "train_loss"
-reduce_factor:
-  value: 0.5
-reduce_patience:
-  value: 5
-reduce_threshold:
-  value: 0.001
+segmentation_list:
+  value: ["liver", "kidneys", "vessels", "aorta"]
 
-# Warmup Epochs
-warmup_epochs:
-  value: 0
-
-# Optimizer Parameters
-weight_decay:
-  value: 0
-
-# Other training parameters
-log_train_imgs:
-  value: 5
-log_val_imgs:
-  value: 10
-val_freq:
-  value: 2
-  
-# Test options
-#saved_checkpoint:
-  #value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/sweet-salad-530/last.ckpt"
-
-  # copper-sweep-1 ('learning_rate': 0.0001, 'lr_scheduler': 'CosineAnnealingLR', 'warmup_epochs': 0, 'patch_size': 112)
-  #value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/copper-sweep-1/epoch=129-step=65780.ckpt"
-
-  # polar-water-25 ('learning_rate': 0.0001, 'lr_scheduler': 'MultiStepLR', 'warmup_epochs': 0, 'patch_size': 112)
-  #value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/polar-water-25/epoch=94-step=14250.ckpt"
-
-  # spring-cherry-204 ('learning_rate': 0.0001, 'lr_scheduler': 'CosineAnnealingLR', 'warmup_epochs': 0, 'patch_size': Full Volume per slices, 'dataset': 'P512 - Full Volume per slices'
-  #value: "/home/guests/jorge_padilla/output/models/DynamicPET_Segmentation/checkpoints/spring-cherry-204/epoch=19-step=85000.ckpt"
+monitor_metric:
+  value: "val_loss_segmentation"

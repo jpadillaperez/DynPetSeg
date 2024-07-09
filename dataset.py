@@ -14,7 +14,7 @@ import nibabel as nib
 from scipy.ndimage import label
 
 class DynPETDataset(CacheDataset):
-    def __init__(self, config, dataset_type, patch_size=0):
+    def __init__(self, config, dataset_type, patch_size=None):
         # Enforce determinism
         seed = 0
         torch.manual_seed(seed)
@@ -26,15 +26,19 @@ class DynPETDataset(CacheDataset):
         self.dataset_type = dataset_type    #train, validation or test
         self.patch_size = patch_size
 
+        print(f"Using patch size {self.patch_size} for {self.dataset_type}")
+
         # Create config for each dataset type from global config
-        self.train_config = {"patient_list": self.config["patient_list"]["train"], "slices_per_patient": self.config["slices_per_patient_train"], "bounding_box": self.config["bounding_box"], "segmentation_list" : self.config["segmentation_list"]}
-        self.val_config = {"patient_list": self.config["patient_list"]["validation"], "slices_per_patient": self.config["slices_per_patient_val"], "bounding_box": self.config["bounding_box"], "segmentation_list" : self.config["segmentation_list"]}
-        self.test_config = {"patient_list": self.config["patient_list"]["test"], "slices_per_patient": self.config["slices_per_patient_test"], "bounding_box": self.config["bounding_box"], "segmentation_list" : self.config["segmentation_list"]}
+        self.train_config = {"patient_list": self.config["patient_list"]["train"], "slices_per_patient": self.config["slices_per_patient"], "bounding_box": self.config["bounding_box"], "segmentation_list" : self.config["segmentation_list"]}
+        self.val_config = {"patient_list": self.config["patient_list"]["validation"], "slices_per_patient": self.config["slices_per_patient"], "bounding_box": self.config["bounding_box"], "segmentation_list" : self.config["segmentation_list"]}
+        self.test_config = {"patient_list": self.config["patient_list"]["test"], "slices_per_patient": self.config["slices_per_patient"], "bounding_box": self.config["bounding_box"], "segmentation_list" : self.config["segmentation_list"]}
 
         # Select the correct config
         self.idif = dict()
+
         self.data_list = list()
         self.data_seg_list = list()
+        self.data_ct_list = list()
 
         if dataset_type == "train":
             self.build_dataset(self.train_config)
@@ -50,28 +54,39 @@ class DynPETDataset(CacheDataset):
     def __getitem__(self,idx):
         #DONE: load torch from here 
         item = torch.load(self.data_list[idx])
-        item[2] = item[2].to(torch.float16).type(torch.cuda.FloatTensor)
+        item[2] = item[2].type(torch.cuda.FloatTensor)
 
-        #DONE: load segmentation from here
-        item_seg = torch.load(self.data_seg_list[idx])[2].to(torch.int16).type(torch.cuda.IntTensor)
-        item.append(item_seg)
-
-        assert self.data_list[idx].split("_")[-1].split(".")[0] == self.data_seg_list[idx].split("_")[-1].split(".")[0], "Data and segmentation slices don't match"
-        assert self.data_list[idx].split("_")[-2].split("data")[-1] == self.data_seg_list[idx].split("_")[-2].split("seg")[-1], "Data and segmentation patients don't match"
+        if ((self.config["experiment"] == "adaptation2") or (self.config["experiment"] == "adaptation3") or (self.config["experiment"] == "segmentation")):
+            #DONE: load segmentation from here
+            item_seg = torch.load(self.data_seg_list[idx])[2].type(torch.cuda.IntTensor)
+            item.append(item_seg)
+            assert self.data_list[idx].split("_")[-1].split(".")[0] == self.data_seg_list[idx].split("_")[-1].split(".")[0], "Data and segmentation slices don't match"
+            assert self.data_list[idx].split("_")[-2].split("data")[-1] == self.data_seg_list[idx].split("_")[-2].split("seg")[-1], "Data and segmentation patients don't match"
         
+            #DONE: load CT from here
+            item_ct = torch.load(self.data_ct_list[idx])[2].type(torch.cuda.FloatTensor)
+            item.append(item_ct)
+            assert self.data_list[idx].split("_")[-1].split(".")[0] == self.data_ct_list[idx].split("_")[-1].split(".")[0], "Data and CT slices don't match"
+            assert self.data_list[idx].split("_")[-2].split("data")[-1] == self.data_ct_list[idx].split("_")[-2].split("ct")[-1], "Data and CT patients don't match"
+
         return item
 
     def __len__(self):
         return int(self.length)
     
     def __get_patch_size__(self):
+        if self.patch_size == None:
+            item = torch.load(self.data_list[0])
+            item[2] = item[2].type(torch.cuda.FloatTensor)
+            self.patch_size = item[2].shape[-1] 
         return self.patch_size
     
     def remove_slices_without_segmentation(self):
         data_list = list()
         data_seg_list = list()
+        data_ct_list = list()
         for idx in range(len(self.data_list)):
-            seg = torch.load(self.data_seg_list[idx])[2].to(torch.int16).type(torch.cuda.IntTensor)
+            seg = torch.load(self.data_seg_list[idx])[2].type(torch.cuda.IntTensor)
             #Check if the segmentation has any value different from 0
             if torch.sum(seg) > 0:
                 assert self.data_list[idx].split("_")[-1].split(".")[0] == self.data_seg_list[idx].split("_")[-1].split(".")[0], "Data and segmentation slices don't match"
@@ -79,9 +94,12 @@ class DynPETDataset(CacheDataset):
                 
                 data_list.append(self.data_list[idx])
                 data_seg_list.append(self.data_seg_list[idx])
+                data_ct_list.append(self.data_ct_list[idx])
 
         self.data_list = data_list
         self.data_seg_list = data_seg_list
+        self.data_ct_list = data_ct_list
+
         self.length = len(self.data_list)
 
         print("New Dataset", self.dataset_type, "has", self.length, "slices and length", self.length, "\n")
@@ -105,25 +123,27 @@ class DynPETDataset(CacheDataset):
         self.current_dataset_size = current_size
 
         # Load existing data, if possible
-        load_data = self.load_data() #FIXME: update load data
+        load_data = self.load_data(current_config) #FIXME: update load data
         if load_data is None:  
             # If the dataset does not exist, create the folder where it will be saved
             if not os.path.exists(self.save_data_folder):
                 os.makedirs(self.save_data_folder)
 
-            [self.data_list, self.data_seg_list] = self.read_dynpet()
+            [self.data_list, self.data_seg_list, self.data_ct_list] = self.read_dynpet(current_config)
             print("Dataset", self.dataset_type, "was saved in", self.save_data_folder)
         else:                   
-            [self.data_list, self.data_seg_list] = load_data
+            [self.data_list, self.data_seg_list, self.data_ct_list] = load_data
 
         
         if self.config["overfit"]:
             print("Overfitting mode")
             self.data_list = [self.data_list[0]]
             self.data_seg_list = [self.data_seg_list[0]]
+            self.data_ct_list = [self.data_ct_list[0]]
 
         
         assert len(self.data_list) == len(self.data_seg_list), "The number of data and segmentation files is different"
+        assert len(self.data_list) == len(self.data_ct_list), "The number of data and CT files is different"
         
         self.length = len(self.data_list)
 
@@ -168,10 +188,11 @@ class DynPETDataset(CacheDataset):
                 raise ValueError("slices_per_patient should be 'all' or 'no_legs'")
         return 
 
-    def read_dynpet(self): 
+    def read_dynpet(self, current_config):
         print("Creating dataset", self.dataset_type, "with", self.current_dataset_size, "slices...")
         data_list = list()
         seg_list = list()
+        ct_list = list()
         for patient in self.patient_list:
             print("\tProcessing patient: " + str(patient))
             patient_folder = glob.glob(os.path.join(root_data_path, "*DynamicFDG_"+patient))[0]
@@ -179,7 +200,7 @@ class DynPETDataset(CacheDataset):
             #self.slices_per_patients = int(self.current_dataset_size / len(self.patient_list)) #FIXME: Make a dictionary with patients and slices
             #DOUBT JPP: When using all of the slices per patient, it still means same number of slices in all the patients? --> No
             #DONE: Add a config flag to avoid this bbox step
-            if self.train_config["bounding_box"]:
+            if current_config["bounding_box"]:
                 # When config["slices_per_patient_*"]>1 (and therefore self.current_dataset_size > 1), the slices are selected within a ROI defined by a bouding box (bb). We used a bb
                 # including the lungs and the bladder. In this way we didn't considered the head (because of the movement over the acquisition) and the legs (which are not very informative).
                 # The use of the bb is not mandatory.  
@@ -267,9 +288,15 @@ class DynPETDataset(CacheDataset):
                 print("\t\tSlices in patient: " + str(slices_in_patient))
                 print("\t\tSizes in patient: " + str(sizes_in_patient))
                 
-                #if self.patch_size != max(sizes_in_patient):
-                #    print(f"WARNING: Setting patch size to {max(sizes_in_patient)}")
-                #    self.patch_size = max(sizes_in_patient)
+                #Maximum size possible
+                if self.patch_size == "max":
+                    if self.patch_size != max(sizes_in_patient):
+                        if max(sizes_in_patient) % 2 == 1:
+                            print(f"WARNING: Setting patch size to {max(sizes_in_patient)-1}")
+                            self.patch_size = max(sizes_in_patient)-1
+                        else:
+                            print(f"WARNING: Setting patch size to {max(sizes_in_patient)}")
+                            self.patch_size = max(sizes_in_patient)
 
                 size = self.patch_size
                 max_num_slices = max(ss.stop for ss in slices_in_patient if ss)
@@ -292,13 +319,31 @@ class DynPETDataset(CacheDataset):
                             current_slice = torch.from_numpy(np.pad(current_pet[slice, :, :], padding, 'constant', constant_values=(0, 0)))
                             current_data[slice, i, :, :] = current_slice/1000           # from Bq/ml to kBq/ml
 
-                #Iterate over all the segmentations of the dynamic pets of the same patients
-                #if self.train_config["segmentation_postprocessing"]:
-                print("\t\tImporting preprocessed segmentation...")
-                segmentation_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentation_processed/*.nii.gz")
-                #else:
-                #    segmentation_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentation/*.nii.gz")
-                segmentation_list = [s for s in segmentation_list if s.split("/")[-1].split(".")[0] in self.train_config["segmentation_list"]]
+                #----------------- GET SEGMENTATION DATA -----------------
+
+                segmentation_list = list()
+                if ("liver" in current_config["segmentation_list"]):
+                    print("\t\tImporting liver from preprocessed segmentation...")
+                    org_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentation_processed/liver.nii.gz")
+                    segmentation_list += [s for s in org_list if s.split("/")[-1].split(".")[0] in "liver"]
+                if ("kidneys" in current_config["segmentation_list"]): 
+                    print("\t\tImporting kidneys from preprocessed segmentation...")
+                    org_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentation_processed/kidneys.nii.gz")
+                    segmentation_list += [s for s in org_list if s.split("/")[-1].split(".")[0] in "kidneys"]
+                if ("vessels" in current_config["segmentation_list"]):
+                    print("\t\tImporting vessels from preprocessed segmentation...")
+                    org_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentation_processed/vessels.nii.gz")
+                    segmentation_list += [s for s in org_list if s.split("/")[-1].split(".")[0] in "vessels"]
+                if ("aorta" in current_config["segmentation_list"]):
+                    print("\t\tImporting aorta from aorta segmentation...")
+                    org_list = glob.glob(patient_folder + "/NIFTY/Resampled/segmentationAorta/aorta.nii.gz")
+                    segmentation_list += [s for s in org_list if s.split("/")[-1].split(".")[0] in "aorta"]
+                if segmentation_list == []:
+                    print("\t\tERROR: Segmentation not found!")
+                    return
+
+                segmentation_list.sort()
+                print("\t\tSegmentations in patient: " + str(segmentation_list))
                 current_seg_data = torch.zeros((max_num_slices, len(segmentation_list) + 1, size, size))  #[SLICES, SEGMENTATION, X, Y] TODO: better [SEGMENTATION, SLICES, X, Y]?
 
                 for i, s in enumerate(tqdm(segmentation_list, desc="Processing segmentations")):
@@ -333,6 +378,39 @@ class DynPETDataset(CacheDataset):
                 current_seg_data = np.argmax(current_seg_data, axis=1)
                 current_seg_data = current_seg_data.squeeze(0)
 
+
+                #----------------- GET CT DATA -----------------
+
+                current_ct_data = torch.zeros((max_num_slices, 1, size, size))  #[SLICES, 1, X, Y] TODO: better [SEGMENTATION, SLICES, X, Y]?
+                current_ct = torch.from_numpy(sitk.GetArrayFromImage(sitk.ReadImage(patient_folder + "/NIFTY/Resampled/CT.nii.gz")))
+
+                #Fixing the number of slices in the segmentation
+                if max_num_slices < current_ct.shape[0]:
+                    current_ct = current_ct[int((current_ct.shape[0]-max_num_slices)/2):int((current_ct.shape[0]-max_num_slices)/2)+max_num_slices, :, :]
+                elif max_num_slices > current_ct.shape[0]:
+                    padding = ((max(0, max_num_slices - current_ct.shape[0]), max(0, max_num_slices - current_ct.shape[0])), (0, 0), (0, 0))
+                    current_ct = torch.from_numpy(np.pad(current_ct, padding, 'constant', constant_values=(0, 0)))
+
+                if size < current_ct[0, :, :].shape[0] or size < current_ct[0, :, :].shape[1]:
+                    #If patch_size is smaller than the size of the original pet, make center crop
+                    slice_center = torch.tensor(current_ct[0, :, :].shape)[0] / 2
+                    for slice in np.array(slices_in_patient[0]):
+                        current_slice = current_ct[slice, int(slice_center)-int(size/2):int(slice_center)+int(size/2), int(slice_center)-int(size/2):int(slice_center)+int(size/2)]
+                        current_ct_data[slice, 0, :, :] = current_slice
+                else:
+                    #If patch_size is bigger than the size of the original pet, make padding with background value as minimum value of the pet
+                    for slice in np.array(slices_in_patient[0]):
+                        m, n = current_ct[slice, :, :].shape
+                        padding = ((max(0, size - m), max(0, size - m)), (max(0, size - n), max(0, size - n)))
+                        current_slice = torch.from_numpy(np.pad(current_ct[slice, :, :], padding, 'constant', constant_values=(0, 0)))
+                        current_ct_data[slice, 0, :, :] = current_slice
+
+                assert current_data.shape[0] == current_ct_data.shape[0], "The number of slices in the PET and the segmentation are different"
+                assert current_data.shape[2] == current_ct_data.shape[2], "The size of the PET and the segmentation are different"
+                assert current_data.shape[3] == current_ct_data.shape[3], "The size of the PET and the segmentation are different"
+
+            #----------------- SAVE DATA -----------------
+
                 time_stamp_batch = self.time_stamp.repeat(size*size, 1, 1)
                 time_stamp_batch = time_stamp_batch[:, 0, :].permute((1, 0))
 
@@ -346,21 +424,24 @@ class DynPETDataset(CacheDataset):
                         continue
 
                     #----------------- Save data -----------------
-                    current_slice = current_data[slice, :, :].to(torch.float16).type(torch.cuda.FloatTensor)
-                    current_seg_slice = current_seg_data[slice, :, :].to(torch.int16).type(torch.cuda.IntTensor)
+                    current_slice = current_data[slice, :, :].type(torch.cuda.FloatTensor)
+                    current_seg_slice = current_seg_data[slice, :, :].type(torch.cuda.IntTensor)
+                    current_ct_slice = current_ct_data[slice, :, :].type(torch.cuda.FloatTensor)
                     torch.save([patient, slice, current_slice], self.save_data_folder + "/data"+str(patient)+"_"+str(slice)+".pt")
                     torch.save([patient, slice, current_seg_slice],  self.save_data_folder + "/seg" +str(patient)+"_"+str(slice)+".pt")
+                    torch.save([patient, slice, current_ct_slice], self.save_data_folder + "/ct" +str(patient)+"_"+str(slice)+".pt")
                     data_list.append(self.save_data_folder+"/data"+str(patient)+"_"+str(slice)+".pt")
                     seg_list.append(self.save_data_folder+"/seg"+str(patient)+"_"+str(slice)+".pt")
+                    ct_list.append(self.save_data_folder+"/ct"+str(patient)+"_"+str(slice)+".pt")
         
                 print("\t\tImporting Segmentation...")
         
-        return [data_list, seg_list]
+        return [data_list, seg_list, ct_list]
     
-    def load_data(self):
+    def load_data(self, current_config):
         # Define the location where the dataset is saved
         folder_name = self.dataset_type+"_N"+str(self.current_dataset_size)+"_SEG"+str(len(self.train_config["segmentation_list"]))+"_"
-        for seg in self.train_config["segmentation_list"]:
+        for seg in current_config["segmentation_list"]:
             folder_name += seg + "_"
         folder_name = folder_name[:-1]
 
@@ -376,20 +457,27 @@ class DynPETDataset(CacheDataset):
 
         data_list = list()
         data_seg_list = list()
+        data_ct_list = list()
         for patient in self.patient_list:
             patient_files = glob.glob(self.save_data_folder+"/data"+str(patient)+"*.pt")
             patient_seg_files = glob.glob(self.save_data_folder+"/seg"+str(patient)+"*.pt")
+            patient_ct_files = glob.glob(self.save_data_folder+"/ct"+str(patient)+"*.pt")
 
             #Order the files by slice number and patient
             patient_files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
             patient_seg_files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
+            patient_ct_files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
 
             for file_name in patient_files:
                 data_list.append(file_name)
+            
+            for file_name in patient_ct_files:
+                data_ct_list.append(file_name)
+
             for file_name in patient_seg_files:
                 data_seg_list.append(file_name)
 
-        return [data_list, data_seg_list]
+        return [data_list, data_seg_list, data_ct_list]
         
         # GOOD TO KNOW: self.save_data_folder and file_name are designed so that different datasets with different patients list, patch size or number of slices are saved separately and not overwritten.
         # This allows to save time when generating bigger datasets!

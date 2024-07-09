@@ -1,0 +1,20 @@
+experiment:
+  value: "segmentation"
+
+segmentation_network:
+  value: "UNet" # Options: "UNet", "SegResNetDS"
+
+dropout:
+  value: 0.1
+
+batch_size: 
+  value: 8
+
+segmentation_list:
+  value: ["liver", "kidneys", "vessels", "aorta"]
+
+remove_slices_without_segmentation:
+  value: False
+
+monitor_metric:
+  value: "val_loss_segmentation"
